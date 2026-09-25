@@ -125,6 +125,7 @@ td:has(> .team){width:100%;max-width:0}
 
 /* sportsbook */
 .book .line{display:grid;grid-template-columns:1fr 56px 1fr;gap:18px;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.07)}
+.book .line .row{flex-wrap:nowrap}
 .book .line .mid{text-align:center;font-size:12px;color:var(--faint);line-height:1.5}
 .book .line>div:first-child{padding-left:4px}.book .line>div:last-child{padding-right:4px}
 @media (max-width:480px){.book .line{grid-template-columns:1fr 40px 1fr;gap:10px}}
@@ -242,6 +243,15 @@ main section{animation:tabin .22s ease-out}
 .sbs .p.r{flex-direction:row-reverse;text-align:right}
 .sbs .pos{align-self:center;color:var(--faint);font-size:12px;font-weight:600;width:36px;text-align:center}
 @media (max-width:560px){.sbs .p{font-size:13px;padding:6px}}
+.srow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+.srow:last-child{border-bottom:0}
+.srow .odds{min-width:0;padding:6px 10px;font-size:14px}
+.botw{margin-bottom:14px;background:linear-gradient(160deg,rgba(245,200,107,.14),rgba(255,255,255,.04));border-color:rgba(245,200,107,.35)}
+.botw .lbl{font-size:12px;color:var(--gold);font-weight:600}
+.botw .who{margin-top:4px}
+.botw .big{font-weight:300;font-size:36px;letter-spacing:-.03em;color:var(--win)}
+.badges span{font-size:16px;margin-right:4px;cursor:help}
+.fit1{font-size:.9em}.fit2{font-size:.8em;letter-spacing:-.01em}.fit3{font-size:.7em;letter-spacing:-.015em}
 footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
 @media (prefers-reduced-motion:no-preference){.lineup{animation:open .18s ease-out}@keyframes open{from{opacity:0;transform:translateY(-4px)}}}
 </style>
@@ -301,6 +311,7 @@ const $ = (s, r=document) => r.querySelector(s);
 const el = (h) => { const t=document.createElement("template"); t.innerHTML=h.trim(); return t.content.firstChild; };
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = n => (Math.round((n||0)*100)/100).toFixed(2);
+const fit = name => { const n=(name||"").length; return n>30?"fit3":n>22?"fit2":n>16?"fit1":""; };
 const skel = (n=4,sm=false) => `<div class="skel">${Array.from({length:n},()=>`<i class="${sm?"sm":""}"></i>`).join("")}</div>`;
 const avatarUrl = (id, thumb=true) => id ? `${CDN}/avatars/${thumb?"thumbs/":""}${id}` : "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/>";
 
@@ -373,7 +384,7 @@ function pairMatchups(m){
 const rec = t => `${t.wins}-${t.losses}${t.ties?"-"+t.ties:""}`;
 const games = t => t.wins+t.losses+t.ties;
 const ppg = t => games(t) ? t.pf/games(t) : 0;
-const teamHtml = (t, small=false) => `<div class="team"><img src="${t.avatar}" alt=""><div class="ellip"><div class="n ellip">${esc(t.name)}</div>${small?"":`<div class="o ellip">${esc(t.owner)}</div>`}</div></div>`;
+const teamHtml = (t, small=false) => `<div class="team"><img src="${t.avatar}" alt=""><div class="ellip"><div class="n ellip ${fit(t.name)}">${esc(t.name)}</div>${small?"":`<div class="o ellip">${esc(t.owner)}</div>`}</div></div>`;
 
 /* ---------- nav ---------- */
 const rendered = {};
@@ -468,7 +479,7 @@ function roll(el, from, to){
   requestAnimationFrame(step);
 }
 const isCurrentSeason = () => String(S.league.season)===String(S.state.league_season);
-const imgNm = t => `<img src="${t.avatar}" alt=""><div class="ellip"><div class="nm ellip">${esc(t.name)}</div><div class="rec">${esc(t.owner)} · ${rec(t)}</div></div>`;
+const imgNm = t => `<img src="${t.avatar}" alt=""><div class="ellip"><div class="nm ellip ${fit(t.name)}">${esc(t.name)}</div><div class="rec">${esc(t.owner)} · ${rec(t)}</div></div>`;
 
 /* ---- head-to-head ---- */
 async function openH2H(a,b,week){
@@ -678,6 +689,8 @@ const DB = {
 };
 async function sha(s){ const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join(""); }
 
+
+/* ---- lines ---- */
 function lines(pairs){
   return pairs.filter(([a,b])=>b).map(([a,b])=>{
     const ta=S.teams[a.roster_id], tb=S.teams[b.roster_id];
@@ -687,6 +700,24 @@ function lines(pairs){
     return { mid:a.matchup_id, a:ta, b:tb, ra:a.roster_id, rb:b.roster_id, oddsA:+(vig/p).toFixed(2), oddsB:+(vig/(1-p)).toFixed(2), total:+((ra+rb)).toFixed(1), oddsOU:1.9, started:(a.points||0)>0||(b.points||0)>0 };
   });
 }
+function specialLines(m){ // top / bottom scorer of the week
+  const rs = m.map(x=>x.roster_id).filter(r=>S.teams[r]);
+  const r = Object.fromEntries(rs.map(rid=>[rid, ppg(S.teams[rid])||100]));
+  const soft = (sign) => { const e = Object.fromEntries(rs.map(rid=>[rid, Math.exp(sign*r[rid]/15)])); const z=Object.values(e).reduce((x,y)=>x+y,0); return Object.fromEntries(rs.map(rid=>[rid, Math.min(15, Math.max(1.2, +(0.9/(e[rid]/z)).toFixed(2)))])); };
+  return { top: soft(1), bottom: soft(-1) };
+}
+async function playerAverages(){
+  if (S.pavg && S.pavg.week===S.week) return S.pavg.map;
+  const wk = Array.from({length:Math.max(S.week-1,0)},(_,i)=>i+1);
+  const ms = await Promise.all(wk.map(w=>getMatchups(w).catch(()=>[])));
+  const sum={}, n={};
+  for (const m of ms) for (const x of m) for (const [pid,p] of Object.entries(x.players_points||{})){ sum[pid]=(sum[pid]||0)+(p||0); n[pid]=(n[pid]||0)+1; }
+  const map={}; for (const pid in sum) map[pid]={avg:sum[pid]/n[pid], n:n[pid]};
+  S.pavg={week:S.week, map}; return map;
+}
+const propLine = avg => Math.max(0.5, Math.round(avg*2)/2 + 0.5); // x.5 so no pushes
+
+/* ---- rendering ---- */
 async function renderBook(){
   const sec = $("#t-book");
   sec.innerHTML = `<h2>Sportsbook</h2><div id="bookBody">${skel(5)}</div>`;
@@ -703,26 +734,77 @@ function balanceOf(rid){
   for (const b of S.bets){ if (b.roster_id!==rid) continue; if (b.status==="open") bal -= b.stake; else if (b.status==="won") bal += b.payout - b.stake; else if (b.status==="lost") bal -= b.stake; }
   return bal;
 }
+function bettorStats(rid){
+  const mine = S.bets.filter(b=>b.roster_id===rid && b.status!=="open").sort((x,y)=>new Date(x.created_at)-new Date(y.created_at));
+  let cur=0, curKind=null, longestW=0, run=0, staked=0, ret=0, biggest=null, biggestStake=0;
+  for (const b of mine){
+    if (b.status==="push") continue;
+    staked+=b.stake; if (b.status==="won") ret+=b.payout;
+    if (b.status==="won"){ run++; longestW=Math.max(longestW,run); } else run=0;
+    if (curKind===b.status) cur++; else { curKind=b.status; cur=1; }
+    if (b.status==="won" && (!biggest || b.payout-b.stake > biggest.payout-biggest.stake)) biggest=b;
+    biggestStake=Math.max(biggestStake,b.stake);
+  }
+  return { n:mine.length, w:mine.filter(b=>b.status==="won").length, l:mine.filter(b=>b.status==="lost").length, streak: curKind?`${curKind==="won"?"W":"L"}${cur}`:"—", streakKind:curKind, streakLen:cur, longestW, roi: staked? (ret-staked)/staked : 0, biggest, biggestStake };
+}
+function badgesFor(rid, all){
+  const st=all[rid], out=[];
+  if (st.streakKind==="won" && st.streakLen>=3) out.push(["🔥","Hot hand · "+st.streak]);
+  if (st.streakKind==="lost" && st.streakLen>=3) out.push(["🧊","Ice cold · "+st.streak]);
+  const q = Object.values(all).filter(x=>x.n>=5);
+  if (q.length && st.n>=5 && st.roi===Math.max(...q.map(x=>x.roi)) && st.roi>0) out.push(["🎯","Sharp · best ROI"]);
+  if (st.n>0 && st.n===Math.max(...Object.values(all).map(x=>x.n)) && st.n>=5) out.push(["🎰","Degenerate · most bets"]);
+  const bigs = Object.values(all).filter(x=>x.biggest); if (st.biggest && bigs.length && (st.biggest.payout-st.biggest.stake)===Math.max(...bigs.map(x=>x.biggest.payout-x.biggest.stake))) out.push(["💰","Jackpot · biggest payout"]);
+  if (st.biggestStake>0 && st.biggestStake===Math.max(...Object.values(all).map(x=>x.biggestStake)) && st.biggestStake>=200) out.push(["🃏","High roller · biggest stake"]);
+  if (st.longestW>=5) out.push(["👑","Heater · "+st.longestW+" straight"]);
+  return out;
+}
+const oddsBtn = (pick, txt, locked) => `<button class="odds" data-pick='${JSON.stringify(pick).replace(/'/g,"&#39;")}' ${locked?"disabled":""}>${txt}</button>`;
 async function drawBook(){
   const body = $("#bookBody"); body.className="";
   const week = S.week;
-  const m = await getMatchups(week); const L = lines(pairMatchups(m));
+  const m = await getMatchups(week); const pairs=pairMatchups(m); const L = lines(pairs); const SP = specialLines(m);
   const locked = !isCurrentSeason() || L.some(l=>l.started);
-  const board = Object.values(S.teams).map(t=>({t, bal:balanceOf(t.roster.roster_id), n:S.bets.filter(b=>b.roster_id===t.roster.roster_id&&b.status!=="open").length, w:S.bets.filter(b=>b.roster_id===t.roster.roster_id&&b.status==="won").length})).sort((a,b)=>b.bal-a.bal);
+  await S.playersReady; const avgs = await playerAverages();
+  const stats = Object.fromEntries(Object.keys(S.teams).map(rid=>[+rid, bettorStats(+rid)]));
+  const board = Object.values(S.teams).map(t=>{ const rid=t.roster.roster_id; return {t, rid, bal:balanceOf(rid), st:stats[rid], badges:badgesFor(rid,stats)}; }).sort((a,b)=>b.bal-a.bal);
+  // bet of the week: highest-odds winner from the most recently settled week
+  const settled = S.bets.filter(b=>b.status==="won"); const lastW = settled.length? Math.max(...settled.map(b=>b.week)) : null;
+  const botw = lastW!=null ? settled.filter(b=>b.week===lastW).sort((x,y)=>y.odds-x.odds||y.payout-x.payout)[0] : null;
+  const teamOpts = Object.values(S.teams).map(t=>`<option value="${t.roster.roster_id}">${esc(t.name)}</option>`).join("");
   body.innerHTML = `<div class="grid2"><div>
     ${!DB.on() ? `<div class="note">Bets are saved in this browser only. Add Supabase keys in the config to enable login and share the book with the whole league.</div>`:""}
-    <div class="card book"><div class="row spread"><h3 style="margin:0">Week ${week} lines</h3>${locked?`<span class="pill loss">Locked</span>`:`<span class="pill win">Open</span>`}</div>
-    ${L.length? L.map(l=>`<div class="line" data-mid="${l.mid}">
-      <div>${teamHtml(l.a,true)}<div class="row" style="margin-top:6px"><button class="odds" data-k="ml" data-side="${l.ra}" data-odds="${l.oddsA}" ${locked?"disabled":""}>${l.oddsA.toFixed(2)}</button><button class="odds" data-k="over" data-odds="${l.oddsOU}" data-total="${l.total}" ${locked?"disabled":""}>O ${l.total}</button></div></div>
+    ${botw?`<div class="card botw"><div class="row spread"><div><div class="lbl">Bet of the week · Week ${botw.week}</div><div class="who">${esc(S.teams[botw.roster_id]?.name||"?")} hit <b>${esc(botw.label)}</b> at ${(+botw.odds).toFixed(2)}</div></div><div class="big">+${(botw.payout-botw.stake).toFixed(0)}</div></div></div>`:""}
+    <div class="card book"><div class="row spread"><h3 style="margin:0">Week ${week} matchups</h3>${locked?`<span class="pill loss">Locked</span>`:`<span class="pill win">Open</span>`}</div>
+    ${L.length? L.map(l=>`<div class="line">
+      <div>${teamHtml(l.a,true)}<div class="row" style="margin-top:6px">${oddsBtn({k:"ml",side:l.ra,odds:l.oddsA,mid:l.mid,label:`${l.a.name} ML`}, l.oddsA.toFixed(2), locked)}${oddsBtn({k:"over",odds:l.oddsOU,total:l.total,mid:l.mid,label:`Over ${l.total} (${l.a.name}/${l.b.name})`}, "O "+l.total, locked)}</div></div>
       <div class="mid">win<br>total</div>
-      <div style="text-align:right">${teamHtml(l.b,true)}<div class="row" style="margin-top:6px;justify-content:flex-end"><button class="odds" data-k="ml" data-side="${l.rb}" data-odds="${l.oddsB}" ${locked?"disabled":""}>${l.oddsB.toFixed(2)}</button><button class="odds" data-k="under" data-odds="${l.oddsOU}" data-total="${l.total}" ${locked?"disabled":""}>U ${l.total}</button></div></div>
+      <div style="text-align:right">${teamHtml(l.b,true)}<div class="row" style="margin-top:6px;justify-content:flex-end">${oddsBtn({k:"ml",side:l.rb,odds:l.oddsB,mid:l.mid,label:`${l.b.name} ML`}, l.oddsB.toFixed(2), locked)}${oddsBtn({k:"under",odds:l.oddsOU,total:l.total,mid:l.mid,label:`Under ${l.total} (${l.a.name}/${l.b.name})`}, "U "+l.total, locked)}</div></div>
     </div>`).join("") : `<div class="empty">No matchups this week.</div>`}</div>
-    <p class="muted" style="font-size:13px">Odds are decimal: a 2.50 win pays 2.5× your stake. Lines come from each team's scoring average and lock when the first game kicks off. Everyone starts with ${CONFIG.STARTING_BANKROLL} and gets ${CONFIG.WEEKLY_STIPEND} more each week.</p>
-    <h3 style="margin-top:22px">Leaderboard</h3><div class="card" style="padding:4px 8px"><table><thead><tr><th>#</th><th>Bettor</th><th class="num">Bankroll</th><th class="num">Record</th></tr></thead><tbody>
-      ${board.map((r,i)=>`<tr><td class="muted">${i+1}</td><td>${teamHtml(r.t,true)}</td><td class="num">${r.bal.toFixed(0)}</td><td class="num">${r.w}-${r.n-r.w}</td></tr>`).join("")}</tbody></table></div>
+
+    <div class="card book" style="margin-top:14px"><h3>Weekly specials</h3><div class="muted" style="font-size:13px;margin:-6px 0 10px">Who scores the most, and who scores the least, across the whole league this week.</div>
+      <div class="spec">${Object.values(S.teams).filter(t=>SP.top[t.roster.roster_id]).sort((x,y)=>SP.top[x.roster.roster_id]-SP.top[y.roster.roster_id]).map(t=>{ const rid=t.roster.roster_id; return `<div class="srow">${teamHtml(t,true)}<div class="row" style="gap:6px;flex-wrap:nowrap">${oddsBtn({k:"top",side:rid,odds:SP.top[rid],label:`${t.name} top scorer`}, "Top "+SP.top[rid].toFixed(2), locked)}${oddsBtn({k:"bottom",side:rid,odds:SP.bottom[rid],label:`${t.name} lowest scorer`}, "Low "+SP.bottom[rid].toFixed(2), locked)}</div></div>`; }).join("")}</div></div>
+
+    <div class="card book" style="margin-top:14px"><div class="row spread"><h3 style="margin:0">Player props</h3><select id="propTeam">${teamOpts}</select></div>
+      <div class="muted" style="font-size:13px;margin:6px 0 10px">Over/under on a starter's points this week. Lines are the player's season average, rounded to the half point. Both sides pay 1.90.</div>
+      <div id="props"></div></div>
+
+    <p class="muted" style="font-size:13px">Odds are decimal: a 2.50 win pays 2.5× your stake. All lines lock when the first game kicks off. Everyone starts with ${CONFIG.STARTING_BANKROLL} and gets ${CONFIG.WEEKLY_STIPEND} more each week.</p>
+
+    <h3 style="margin-top:22px">Leaderboard</h3><div class="card" style="padding:4px 8px"><table><thead><tr><th>#</th><th>Bettor</th><th class="num">Bankroll</th><th class="num">Record</th><th class="num">Streak</th><th>Badges</th></tr></thead><tbody>
+      ${board.map((r,i)=>`<tr class="${S.me?.roster_id===r.rid?"mine":""}"><td class="muted">${i+1}</td><td>${teamHtml(r.t,true)}</td><td class="num">${r.bal.toFixed(0)}</td><td class="num">${r.st.w}-${r.st.l}</td><td class="num ${r.st.streakKind==="won"?"s-won":r.st.streakKind==="lost"?"s-lost":""}">${r.st.streak}</td><td class="badges">${r.badges.map(([ic,t])=>`<span title="${esc(t)}">${ic}</span>`).join("")}</td></tr>`).join("")}</tbody></table></div>
+    <p class="muted" style="font-size:12.5px">🔥 3+ wins in a row · 🧊 3+ losses in a row · 🎯 best return on 5+ bets · 🎰 most bets · 💰 biggest single payout · 🃏 biggest stake (200+) · 👑 5-bet heater</p>
   </div><div><div class="slip" id="slip"></div></div></div>`;
+  const drawProps = ()=>{
+    const rid=+$("#propTeam").value; const mm=m.find(x=>x.roster_id===rid); const box=$("#props");
+    if(!mm){ box.innerHTML=`<div class="muted">No lineup yet.</div>`; return; }
+    const rows=(mm.starters||[]).filter(pid=>pid&&pid!=="0"&&avgs[pid]).map(pid=>{ const ln=propLine(avgs[pid].avg); return `<div class="srow"><div><b>${esc(pname(pid))}</b> <span class="muted" style="font-size:12px">${esc(P(pid)[1])} · ${esc(P(pid)[2])} · avg ${fmt(avgs[pid].avg)}</span></div><div class="row" style="gap:6px;flex-wrap:nowrap">${oddsBtn({k:"prop_over",pid,total:ln,odds:1.9,label:`${pname(pid)} over ${ln}`}, "O "+ln, locked)}${oddsBtn({k:"prop_under",pid,total:ln,odds:1.9,label:`${pname(pid)} under ${ln}`}, "U "+ln, locked)}</div></div>`; });
+    box.innerHTML = rows.length? rows.join("") : `<div class="muted">Props open once players have a game on record this season.</div>`;
+    wire();
+  };
+  const wire = ()=> body.querySelectorAll(".odds").forEach(b=>b.onclick=()=>{ body.querySelectorAll(".odds").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); S.pick=JSON.parse(b.dataset.pick); drawSlip(); });
+  $("#propTeam").value = S.me?.roster_id ?? $("#propTeam").value; $("#propTeam").onchange=drawProps; drawProps(); wire();
   drawSlip();
-  body.querySelectorAll(".odds").forEach(b=>b.onclick=()=>{ body.querySelectorAll(".odds").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); S.pick = {...b.dataset, mid:+b.closest(".line").dataset.mid}; drawSlip(); });
 }
 function drawSlip(){
   const s = $("#slip");
@@ -735,18 +817,17 @@ function drawSlip(){
   const t = S.teams[S.me.roster_id]; const bal = balanceOf(S.me.roster_id);
   const mine = S.bets.filter(b=>b.roster_id===S.me.roster_id);
   const pk = S.pick;
-  let pickHtml = `<div class="muted">Tap a line to start a bet.</div>`;
+  let pickHtml = `<div class="muted">Tap any line to start a bet.</div>`;
   if (pk){
-    const L = lines(pairMatchups(S.matchups[`${S.leagueId}:${S.week}`]||[])).find(l=>l.mid===pk.mid);
-    const desc = pk.k==="ml" ? `${esc(S.teams[pk.side].name)} to win` : `${pk.k==="over"?"Over":"Under"} ${pk.total} total points`;
-    pickHtml = `<div><b>${desc}</b> <span class="muted">vs ${esc(L?.a.name)} / ${esc(L?.b.name)}</span></div>
+    pickHtml = `<div><b>${esc(pk.label)}</b> <span class="muted">@ ${(+pk.odds).toFixed(2)}</span></div>
       <div class="row" style="margin-top:10px"><input id="stake" type="number" min="1" max="${Math.floor(bal)}" value="${Math.min(50,Math.floor(bal))}" style="width:110px"> <span class="muted">to win</span> <b id="toWin"></b></div>
       <button class="btn brass" id="place" style="margin-top:12px" ${bal<1?"disabled":""}>Place bet</button><div id="betMsg" class="muted" style="margin-top:6px"></div>`;
   }
+  const st = bettorStats(S.me.roster_id);
   s.innerHTML = `<div class="card"><div class="row spread"><div>${teamHtml(t,true)}</div>${sb?"":`<button class="btn ghost" id="out" style="font-size:15px;padding:5px 10px">Switch</button>`}</div>
-    <div class="bal" style="margin-top:10px">${bal.toFixed(0)}</div><div class="muted" style="font-size:13px">bankroll</div>
+    <div class="bal" style="margin-top:10px">${bal.toFixed(0)}</div><div class="muted" style="font-size:13px">bankroll · ${st.w}-${st.l}${st.n?` · ${(st.roi*100).toFixed(0)}% return`:""}</div>
     <hr style="border:0;border-top:1px solid var(--edge);margin:16px 0">${pickHtml}</div>
-    <div class="card hist" style="margin-top:14px"><h3>My bets</h3>${mine.length? `<table><tbody>${mine.slice(0,30).map(b=>`<tr><td>Wk ${b.week}<br><span class="muted" style="font-size:13px">${esc(b.label)}</span></td><td class="num">${b.stake}</td><td class="s-${b.status}">${b.status==="open"?`open @${(+b.odds).toFixed(2)}`:b.status==="won"?`+${(b.payout-b.stake).toFixed(0)}`:b.status==="lost"?`−${b.stake}`:"push"}</td></tr>`).join("")}</tbody></table>`:`<div class="muted">No bets yet.</div>`}</div>`;
+    <div class="card hist" style="margin-top:14px"><h3>My bets</h3>${mine.length? `<table><tbody>${mine.slice(0,40).map(b=>`<tr><td>Wk ${b.week}<br><span class="muted" style="font-size:13px">${esc(b.label)}</span></td><td class="num">${b.stake}</td><td class="s-${b.status}">${b.status==="open"?`open @${(+b.odds).toFixed(2)}`:b.status==="won"?`+${(b.payout-b.stake).toFixed(0)}`:b.status==="lost"?`−${b.stake}`:"push"}</td></tr>`).join("")}</tbody></table>`:`<div class="muted">No bets yet.</div>`}</div>`;
   const out=$("#out"); if(out) out.onclick = ()=>{ S.me=null; localStorage.removeItem(`ffl_me_${S.leagueId}`); drawSlip(); };
   if (pk){
     const upd = ()=>{ $("#toWin").textContent = (Math.max(0,+$("#stake").value||0)*+pk.odds).toFixed(0); }; $("#stake").oninput=upd; upd();
@@ -768,8 +849,7 @@ async function placeBet(){
   const pk=S.pick, stake=Math.floor(+$("#stake").value), msg=$("#betMsg"), bal=balanceOf(S.me.roster_id);
   if(!(stake>=1)||stake>bal){ msg.textContent=`Stake must be between 1 and ${Math.floor(bal)}.`; return; }
   const m = await getMatchups(S.week); if (lines(pairMatchups(m)).some(l=>l.started)){ msg.textContent="Lines are locked; games have started."; return; }
-  const label = pk.k==="ml" ? `${S.teams[pk.side].name} ML` : `${pk.k==="over"?"Over":"Under"} ${pk.total}`;
-  const bet = { league_id:S.leagueId, roster_id:S.me.roster_id, week:S.week, matchup_id:pk.mid, kind:pk.k, side: pk.k==="ml"? +pk.side : null, total: pk.total? +pk.total : null, odds:+pk.odds, stake, payout:+(stake*+pk.odds).toFixed(2), status:"open", label, created_at:new Date().toISOString() };
+  const bet = { league_id:S.leagueId, roster_id:S.me.roster_id, week:S.week, matchup_id: pk.mid ?? 0, kind:pk.k, side: pk.side!=null? +pk.side : null, total: pk.total!=null? +pk.total : null, player_id: pk.pid||null, odds:+pk.odds, stake, payout:+(stake*+pk.odds).toFixed(2), status:"open", label:pk.label, created_at:new Date().toISOString() };
   $("#place").disabled=true;
   try{ const r = await DB.q("bets","",{method:"POST", body:bet, headers:{"Prefer":"return=representation"}}); S.bets.unshift(r[0]||bet); S.pick=null; drawBook(); }
   catch(e){ msg.textContent=e.message; $("#place").disabled=false; }
@@ -782,12 +862,21 @@ async function settleBets(){
   const byWeek = {}; for (const b of done) (byWeek[b.week] ||= []).push(b);
   for (const [w, bs] of Object.entries(byWeek)){
     let m; try{ m = await getMatchups(+w); }catch{ continue; }
+    const pts = Object.fromEntries(m.map(x=>[x.roster_id, x.points||0]));
+    const allPts = Object.values(pts); const hi=Math.max(...allPts), lo=Math.min(...allPts);
     for (const b of bs){
-      const g = m.filter(x=>x.matchup_id===b.matchup_id); if (g.length<2) continue;
-      const tot = g.reduce((s,x)=>s+(x.points||0),0);
       let status;
-      if (b.kind==="ml"){ const mine=g.find(x=>x.roster_id===b.side), other=g.find(x=>x.roster_id!==b.side); status = mine.points>other.points?"won":mine.points<other.points?"lost":"push"; }
-      else { status = tot===b.total?"push":(tot>b.total)===(b.kind==="over")?"won":"lost"; }
+      if (b.kind==="ml"||b.kind==="over"||b.kind==="under"){
+        const g = m.filter(x=>x.matchup_id===b.matchup_id); if (g.length<2) continue;
+        const tot = g.reduce((s,x)=>s+(x.points||0),0);
+        if (b.kind==="ml"){ const mine=g.find(x=>x.roster_id===b.side), other=g.find(x=>x.roster_id!==b.side); status = mine.points>other.points?"won":mine.points<other.points?"lost":"push"; }
+        else status = tot===+b.total?"push":(tot>+b.total)===(b.kind==="over")?"won":"lost";
+      } else if (b.kind==="top"){ status = pts[b.side]===hi ? "won" : "lost"; }
+      else if (b.kind==="bottom"){ status = pts[b.side]===lo ? "won" : "lost"; }
+      else if (b.kind==="prop_over"||b.kind==="prop_under"){
+        let p=null; for (const x of m){ if (x.players_points && b.player_id in x.players_points){ p=x.players_points[b.player_id]; break; } }
+        status = p==null ? "push" : p===+b.total ? "push" : (p>+b.total)===(b.kind==="prop_over") ? "won" : "lost";
+      } else continue;
       try{ await DB.q("bets", `id=eq.${b.id}&status=eq.open`, {method:"PATCH", body:{status, settled_at:new Date().toISOString()}}); b.status=status; }catch{}
     }
   }
@@ -864,7 +953,7 @@ async function drawDraft(lg){
       var ptsOf = pid => totals[pid];
     }
     html += `<div class="dgrid" style="grid-template-columns:40px repeat(${teamsN},minmax(126px,1fr))">
-      <div></div>${Array.from({length:teamsN},(_,i)=>{ const t=teams[slotTeam[i+1]]; return `<div class="dhead dteam"><span class="slotno">${i+1}</span>${t?`<img src="${t.avatar}" alt="">`:""}<span class="ellip">${esc(t?.name||"Slot "+(i+1))}</span></div>`; }).join("")}
+      <div></div>${Array.from({length:teamsN},(_,i)=>{ const t=teams[slotTeam[i+1]]; return `<div class="dhead dteam"><span class="slotno">${i+1}</span>${t?`<img src="${t.avatar}" alt="">`:""}<span class="ellip ${fit(t?.name)}">${esc(t?.name||"Slot "+(i+1))}</span></div>`; }).join("")}
       ${grid.map((r,ri)=>`<div class="dhead" style="align-self:center">${ri+1}${d.type==="snake"?`<div class="muted" style="font-size:10px">${ri%2?"←":"→"}</div>`:""}</div>${r.map(p=>{ if(!p) return `<div class="dcell muted">—</div>`;
         const owner = p.roster_id ?? Object.values(teams).find(t=>t.user?.user_id===p.picked_by)?.roster?.roster_id; const traded = owner!=null && slotTeam[p.draft_slot]!=null && owner!==slotTeam[p.draft_slot];
         return `<div class="dcell ${esc(p.metadata?.position||"")}"><span class="pk">${pickLabel(p)}</span><b>${esc(pn(p))}</b><span class="pos">${esc(p.metadata?.position||"")} · ${esc(p.metadata?.team||"FA")}${ptsOf&&ptsOf(p.player_id)!=null?` · ${fmt(ptsOf(p.player_id))} pts`:""}</span>${traded?`<span class="via ellip">via trade · ${esc(teams[owner]?.name||"?")}</span>`:""}</div>`; }).join("")}`).join("")}</div>`;
