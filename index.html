@@ -304,6 +304,26 @@ main section{animation:tabin .22s ease-out}
 .bt .chk{margin-left:auto;color:var(--win);font-weight:700}
 .bt.tbd{color:var(--faint)}
 .bglbl{position:absolute;top:-1px;right:8px;font-size:10.5px;color:var(--gold);font-weight:600}
+.h2hpick{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;margin-bottom:16px}
+.h2hpick select{width:100%;font-size:16px;padding:11px 12px}
+.h2hpick .btn{padding:9px 14px}
+.series .srow-h{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center}
+.series .who{display:flex;align-items:center;gap:10px;font-size:17px;min-width:0}
+.series .who.r{justify-content:flex-end;text-align:right}
+.series .who img{width:44px;height:44px;border-radius:12px;border:1px solid var(--edge);background:var(--glass-2);flex:none}
+.series .mid{text-align:center}
+.series .big{font-weight:300;font-size:52px;letter-spacing:-.04em;line-height:1}
+.series .lbl{color:var(--sub);font-size:13px;margin-top:4px}
+.series .meet{display:flex;justify-content:space-between;gap:10px;padding:6px 0;font-size:13px;border-bottom:1px solid rgba(255,255,255,.06)}
+.series .meet .w{color:var(--win);font-weight:600}
+.cmp td.lbl{text-align:center;color:var(--sub);font-size:13px;width:44%}
+.cmp td.num{text-align:right;font-size:17px;font-weight:600}
+.cmp td.num.l,.cmp th.l{text-align:left}
+.cmp td.edge{color:var(--win)}
+.cmp td.edge::after{content:" ◀";font-size:10px;color:var(--win)}
+.cmp td.edge.l::after{content:""}
+.cmp td.edge.l::before{content:"▶ ";font-size:10px;color:var(--win)}
+@media (max-width:560px){.series .big{font-size:40px}.series .who{font-size:14px}.series .who img{width:32px;height:32px}}
 footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
 @media (prefers-reduced-motion:no-preference){.lineup{animation:open .18s ease-out}@keyframes open{from{opacity:0;transform:translateY(-4px)}}}
 </style>
@@ -348,7 +368,7 @@ footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
       members) and the shared sportsbook. Without them the site is open and bets
       are stored only in this browser.
 */
-const VERSION = "v13";
+const VERSION = "v14";
 const CONFIG = {
   LEAGUE_ID: "1389695305292734464",
   SUPABASE_URL: "https://cqstbjpllmcgvotrloid.supabase.co",
@@ -539,12 +559,13 @@ async function openH2H(a,b,week){
   const ta=S.teams[a.roster_id], tb=S.teams[b.roster_id];
   const ov = el(`<div class="overlay"><div class="card h2h"><button class="x" aria-label="Close">×</button>
     ${muHtml(a,b,week).replace(/role="button" tabindex="0"/,"")}
-    <div class="alltime"><div class="big" id="h2hRec">${skel(1,true).replace('class="skel"','class="skel" style="align-items:center"')}</div><div class="lbl">all-time head to head, Sleeper era</div></div>
+    <div class="alltime"><div class="big" id="h2hRec">${skel(1,true).replace('class="skel"','class="skel" style="align-items:center"')}</div><div class="lbl">all-time head to head, Sleeper era · <a href="#records" id="h2hFull" style="color:var(--blue)">Full comparison →</a></div></div>
     <div id="h2hLine"></div>
     <div id="h2hMeet" style="margin-top:18px"></div></div></div>`);
   document.body.appendChild(ov);
   const close=()=>{ ov.remove(); document.removeEventListener("keydown",esc_); }; const esc_=e=>{ if(e.key==="Escape") close(); };
   ov.onclick=e=>{ if(e.target===ov||e.target.classList.contains("x")) close(); }; document.addEventListener("keydown",esc_);
+  $("#h2hFull",ov).onclick=()=>{ S.h2hA=ta.user.user_id; S.h2hB=tb.user.user_id; S.rbTab="h2h"; close(); delete rendered.records; show("records"); };
   // lineups side by side
   const pos = S.league.roster_positions.filter(p=>p!=="BN"&&p!=="IR"&&p!=="TAXI");
   const pt = (m,i) => { const pid=(m.starters||[])[i]; const p=(m.starters_points||[])[i] ?? m.players_points?.[pid]; return {pid, p: p==null?null:+p}; };
@@ -561,28 +582,6 @@ async function openH2H(a,b,week){
     $("#h2hRec",ov).innerHTML = done.length? `${lead} ${Math.max(wA,wB)}–${Math.min(wA,wB)}${ties?`–${ties}`:""}` : "First meeting";
     $("#h2hMeet",ov).innerHTML = done.length? `<h3>Past meetings</h3>${done.sort((x,y)=>y.season-x.season||y.week-x.week).map(x=>`<div class="meet"><span>${x.season} · Week ${x.week}${x.playoff?" · Playoffs":""}</span><span><span class="${x.winner===ta.user.user_id?"w":""}">${esc(ta.owner)} ${fmt(x.pa)}</span> – <span class="${x.winner===tb.user.user_id?"w":""}">${fmt(x.pb)} ${esc(tb.owner)}</span></span></div>`).join("")}` : "";
   }catch{ $("#h2hRec",ov).textContent="—"; }
-}
-async function headToHead(uidA, uidB){
-  const chain=[S.league]; let prev=S.league.previous_league_id, g=0;
-  while(prev && g++<25){ try{ const l=await j(`${API}/league/${prev}`); chain.push(l); prev=l.previous_league_id; }catch{ break; } }
-  const out=[];
-  for (const lg of chain){
-    const ck=`ffl_h2h_${lg.league_id}`; let rows=cache.get(ck);
-    if(!rows || lg.status!=="complete"){
-      const isThis=lg.league_id===S.leagueId;
-      const rosters = isThis? S.rosters : await j(`${API}/league/${lg.league_id}/rosters`);
-      const owner = Object.fromEntries(rosters.map(r=>[r.roster_id,r.owner_id]));
-      const lastW = (lg.settings?.playoff_week_start||15)+3;
-      const maxW = isThis && isCurrentSeason() ? S.week : lastW;
-      const ms = await Promise.all(Array.from({length:maxW},(_,i)=>getMatchups(i+1, lg.league_id).catch(()=>[])));
-      rows=[];
-      ms.forEach((m,i)=>{ for (const [a,b] of pairMatchups(m)){ if(!b) continue; const pa=a.points||0,pb=b.points||0; const final = pa>0||pb>0 ? !(isThis&&isCurrentSeason()&&i+1>=S.week) : false;
-        rows.push({season:+lg.season, week:i+1, playoff:i+1>=(lg.settings?.playoff_week_start||99), ua:owner[a.roster_id], ub:owner[b.roster_id], pa, pb, final, winner: pa>pb?owner[a.roster_id]:pb>pa?owner[b.roster_id]:null}); } });
-      if (lg.status==="complete") cache.set(ck,rows);
-    }
-    for (const r of rows){ if((r.ua===uidA&&r.ub===uidB)) out.push(r); else if(r.ua===uidB&&r.ub===uidA) out.push({...r, ua:r.ub, ub:r.ua, pa:r.pb, pb:r.pa}); }
-  }
-  return out;
 }
 
 /* ================= STANDINGS ================= */
@@ -1097,56 +1096,149 @@ async function seasonPlayerPoints(lg){
 }
 
 /* ================= RECORD BOOK ================= */
+async function buildCareer(){
+  if (S.career && S.career.week===S.week) return S.career;
+  let base=[]; if (sb){ try{ base = await DB.q("records_baseline", `league_id=eq.${S.leagueId}`); }catch{} }
+  const chain = await leagueChain();
+  const perUser = {}; const perSeason = {};
+  const blank = ()=>({wins:0,losses:0,ties:0,pf:0,titles:0,finals:0,seconds:0,thirds:0,papps:0,pw:0,pl:0,seasons:0,first:null,last:null,name:"",best:null});
+  for (const lg of chain){
+    const st = await sleeperSeasonStats(lg); perSeason[lg.season]=st;
+    for (const [uid,x] of Object.entries(st)){ const u = perUser[uid] ||= blank();
+      for (const k of ["wins","losses","ties","pf","titles","finals","seconds","thirds","papps","pw","pl"]) u[k]+=x[k]||0;
+      u.seasons++; u.name = u.name||x.name; const y=+lg.season; u.first=u.first?Math.min(u.first,y):y; u.last=u.last?Math.max(u.last,y):y;
+      const pct=(x.wins+x.losses)?x.wins/(x.wins+x.losses):0; if(!u.best||pct>u.best.pct) u.best={pct, rec:`${x.wins}-${x.losses}`, season:y}; }
+  }
+  const rows=[]; const used=new Set();
+  for (const b of base){
+    const r = {name:b.manager, uid:null, wins:b.wins||0, losses:b.losses||0, ties:b.ties||0, titles:b.titles||0, finals:b.finals||0, seconds:b.seconds||0, thirds:b.thirds||0, papps:b.playoff_apps||0, pw:b.playoff_wins||0, pl:b.playoff_losses||0, seasons:b.seasons||0, first:b.tenure_start, last:b.tenure_end, current:false, sl:null};
+    if (b.sleeper_username){
+      let uid=null; const ck=`ffl_uid_${b.sleeper_username.toLowerCase()}`; uid=cache.get(ck);
+      if(!uid){ try{ uid=(await j(`${API}/user/${encodeURIComponent(b.sleeper_username)}`)).user_id; cache.set(ck,uid); }catch{} }
+      if (uid && perUser[uid]){ const u=perUser[uid]; used.add(uid); r.uid=uid; r.sl=u;
+        for (const k of ["wins","losses","ties","titles","finals","seconds","thirds","papps","pw","pl","seasons"]) r[k]+=u[k];
+        r.last=Math.max(r.last||0,u.last); r.current = !!S.users[uid]; }
+    }
+    rows.push(r);
+  }
+  for (const [uid,u] of Object.entries(perUser)){ if(used.has(uid)) continue; rows.push({...u, uid, sl:u, current:!!S.users[uid]}); }
+  return S.career={week:S.week, rows, perUser, perSeason, chain};
+}
 async function renderRecords(){
   const sec=$("#t-records");
-  sec.innerHTML=`<h2>Record book</h2><p class="muted">All-time regular-season and playoff records. Pre-Sleeper seasons come from the league's records; Sleeper seasons are added automatically.</p><div id="rbBody">${skel(6)}</div>`;
-  try{
-    // 1. baseline rows from the database
-    let base=[]; if (sb){ try{ base = await DB.q("records_baseline", `league_id=eq.${S.leagueId}`); }catch{} }
-    // 2. every Sleeper season in the chain
-    const chain=[S.league]; let prev=S.league.previous_league_id, g=0;
-    while(prev && g++<25){ try{ const l=await j(`${API}/league/${prev}`); chain.push(l); prev=l.previous_league_id; }catch{ break; } }
-    const perUser = {}; // sleeper user_id -> stats
-    const blank = ()=>({wins:0,losses:0,ties:0,titles:0,finals:0,seconds:0,thirds:0,papps:0,pw:0,pl:0,seasons:0,first:null,last:null,name:""});
-    for (const lg of chain){
-      const st = await sleeperSeasonStats(lg);
-      for (const [uid,x] of Object.entries(st)){ const u = perUser[uid] ||= blank();
-        for (const k of ["wins","losses","ties","titles","finals","seconds","thirds","papps","pw","pl"]) u[k]+=x[k];
-        u.seasons++; u.name = u.name||x.name; const y=+lg.season; u.first=u.first?Math.min(u.first,y):y; u.last=u.last?Math.max(u.last,y):y; }
+  sec.innerHTML=`<div class="seg" id="rbSeg">${[["rb","Records"],["h2h","Head to head"]].map(([k,l])=>`<button data-k="${k}" class="${(S.rbTab||"rb")===k?"on":""}">${l}</button>`).join("")}</div><div id="rbBody">${skel(6)}</div>`;
+  $("#rbSeg").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; S.rbTab=b.dataset.k; $("#rbSeg .on")?.classList.remove("on"); b.classList.add("on"); drawRbSec(); };
+  try{ await buildCareer(); drawRbSec(); }catch(e){ $("#rbBody").className="err"; $("#rbBody").textContent=e.message; }
+}
+const pctOf = r => (r.wins+r.losses+r.ties) ? (r.wins+.5*r.ties)/(r.wins+r.losses+r.ties) : 0;
+function drawRbSec(){
+  const body=$("#rbBody"); body.className="";
+  if ((S.rbTab||"rb")==="h2h") return drawH2HTab();
+  const rows=[...S.career.rows].sort((a,b)=> b.titles-a.titles || pctOf(b)-pctOf(a) || b.wins-a.wins);
+  if(!rows.length){ body.className="empty"; body.textContent="No records yet."; return; }
+  const top = (fn, fmtv) => { const r=[...rows].sort((a,b)=>fn(b)-fn(a))[0]; return r?`<div class="card call"><div class="big">${fmtv(fn(r))}</div><div class="lbl">${esc(fn.label)}</div><div class="who">${esc(r.name)}</div></div>`:""; };
+  const fTitles = r=>r.titles; fTitles.label="Most championships";
+  const fPct = r=> (r.wins+r.losses>=20 ? pctOf(r) : -1); fPct.label="Best win % (20+ games)";
+  const fPW = r=>r.pw; fPW.label="Most playoff wins";
+  const fW = r=>r.wins; fW.label="Most regular-season wins";
+  const tenure = r => r.first ? `${r.first}–${r.current? "present" : (r.last||r.first)}` : "";
+  body.innerHTML = `<p class="muted" style="margin-top:0">All-time regular-season and playoff records. Pre-Sleeper seasons come from the league's records; Sleeper seasons are added automatically.</p>
+    <div class="calls">${top(fTitles,v=>v)}${top(fPct,v=>(v*100).toFixed(1)+"%")}${top(fPW,v=>v)}${top(fW,v=>v)}</div>
+    <div class="card rb" style="padding:4px 8px"><table><thead><tr><th>Manager</th><th class="num">Seasons</th><th class="num">Record</th><th class="num">Win %</th><th class="num">Titles</th><th class="num">Finals</th><th class="num">2nd</th><th class="num">3rd</th><th class="num">Playoffs</th><th class="num">Playoff W-L</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr class="${r.uid&&S.me&&S.teams[S.me.roster_id]?.user?.user_id===r.uid?"mine":""}"><td class="name">${esc(r.name)}<div class="ten">${tenure(r)}${r.current?"":" · former"}</div></td><td class="num">${r.seasons}</td><td class="num">${r.wins}-${r.losses}${r.ties?"-"+r.ties:""}</td><td class="num">${(pctOf(r)*100).toFixed(1)}</td><td class="num">${r.titles||"·"}</td><td class="num">${r.finals||"·"}</td><td class="num">${r.seconds||"·"}</td><td class="num">${r.thirds||"·"}</td><td class="num">${r.papps||"·"}</td><td class="num">${r.papps?`${r.pw}-${r.pl}`:"·"}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted" style="font-size:13px">Record is regular season only. Finals counts championship-game appearances. Playoff W-L includes placement games.</p>`;
+}
+
+/* ---- head to head tab ---- */
+async function allMeetings(){ // every Sleeper-era matchup as {season, week, playoff, ua, ub, pa, pb, final, winner}
+  const chain = await leagueChain(); const out=[];
+  for (const lg of chain){
+    const ck=`ffl_h2h_${lg.league_id}`; let rows=cache.get(ck);
+    if(!rows || lg.status!=="complete"){
+      const isThis=lg.league_id===S.leagueId;
+      const rosters = isThis? S.rosters : await j(`${API}/league/${lg.league_id}/rosters`);
+      const owner = Object.fromEntries(rosters.map(r=>[r.roster_id,r.owner_id]));
+      const lastW = (lg.settings?.playoff_week_start||15)+3;
+      const maxW = isThis && isCurrentSeason() ? S.week : lastW;
+      const ms = await Promise.all(Array.from({length:maxW},(_,i)=>getMatchups(i+1, lg.league_id).catch(()=>[])));
+      rows=[];
+      ms.forEach((m,i)=>{ for (const [a,b] of pairMatchups(m)){ if(!b) continue; const pa=a.points||0,pb=b.points||0; const final = pa>0||pb>0 ? !(isThis&&isCurrentSeason()&&i+1>=S.week) : false;
+        rows.push({season:+lg.season, week:i+1, playoff:i+1>=(lg.settings?.playoff_week_start||99), ua:owner[a.roster_id], ub:owner[b.roster_id], pa, pb, final, winner: pa>pb?owner[a.roster_id]:pb>pa?owner[b.roster_id]:null}); } });
+      if (lg.status==="complete") cache.set(ck,rows);
     }
-    // 3. merge: baseline rows link to Sleeper by username
-    const rows=[]; const used=new Set();
-    for (const b of base){
-      const r = {name:b.manager, wins:b.wins||0, losses:b.losses||0, ties:b.ties||0, titles:b.titles||0, finals:b.finals||0, seconds:b.seconds||0, thirds:b.thirds||0, papps:b.playoff_apps||0, pw:b.playoff_wins||0, pl:b.playoff_losses||0, seasons:b.seasons||0, first:b.tenure_start, last:b.tenure_end, current:false};
-      if (b.sleeper_username){
-        let uid=null; const ck=`ffl_uid_${b.sleeper_username.toLowerCase()}`; uid=cache.get(ck);
-        if(!uid){ try{ uid=(await j(`${API}/user/${encodeURIComponent(b.sleeper_username)}`)).user_id; cache.set(ck,uid); }catch{} }
-        if (uid && perUser[uid]){ const u=perUser[uid]; used.add(uid);
-          for (const k of ["wins","losses","ties","titles","finals","seconds","thirds","papps","pw","pl","seasons"]) r[k]+=u[k];
-          r.last=Math.max(r.last||0,u.last); r.current = !!S.users[uid]; }
-      }
-      rows.push(r);
-    }
-    for (const [uid,u] of Object.entries(perUser)){ if(used.has(uid)) continue; rows.push({...u, current:!!S.users[uid]}); }
-    const pct = r => (r.wins+r.losses+r.ties) ? (r.wins+.5*r.ties)/(r.wins+r.losses+r.ties) : 0;
-    rows.sort((a,b)=> b.titles-a.titles || pct(b)-pct(a) || b.wins-a.wins);
-    const body=$("#rbBody"); body.className="";
-    if(!rows.length){ body.className="empty"; body.textContent="No records yet."; return; }
-    const top = (fn, fmtv) => { const r=[...rows].sort((a,b)=>fn(b)-fn(a))[0]; return r?`<div class="card call"><div class="big">${fmtv(fn(r))}</div><div class="lbl">${esc(fn.label)}</div><div class="who">${esc(r.name)}</div></div>`:""; };
-    const fTitles = r=>r.titles; fTitles.label="Most championships";
-    const fPct = r=> (r.wins+r.losses>=20 ? pct(r) : -1); fPct.label="Best win % (20+ games)";
-    const fPW = r=>r.pw; fPW.label="Most playoff wins";
-    const fW = r=>r.wins; fW.label="Most regular-season wins";
-    const tenure = r => r.first ? `${r.first}–${r.current? "present" : (r.last||r.first)}` : "";
-    body.innerHTML = `<div class="calls">${top(fTitles,v=>v)}${top(fPct,v=>(v*100).toFixed(1)+"%")}${top(fPW,v=>v)}${top(fW,v=>v)}</div>
-      <div class="card rb" style="padding:4px 8px"><table><thead><tr><th>Manager</th><th class="num">Seasons</th><th class="num">Record</th><th class="num">Win %</th><th class="num">Titles</th><th class="num">Finals</th><th class="num">2nd</th><th class="num">3rd</th><th class="num">Playoffs</th><th class="num">Playoff W-L</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr class="${r.current&&S.me&&S.teams[S.me.roster_id]?.user?.display_name===r.name?"mine":""}"><td class="name">${esc(r.name)}<div class="ten">${tenure(r)}${r.current?"":" · former"}</div></td><td class="num">${r.seasons}</td><td class="num">${r.wins}-${r.losses}${r.ties?"-"+r.ties:""}</td><td class="num">${(pct(r)*100).toFixed(1)}</td><td class="num">${r.titles||"·"}</td><td class="num">${r.finals||"·"}</td><td class="num">${r.seconds||"·"}</td><td class="num">${r.thirds||"·"}</td><td class="num">${r.papps||"·"}</td><td class="num">${r.papps?`${r.pw}-${r.pl}`:"·"}</td></tr>`).join("")}
-      </tbody></table></div>
-      <p class="muted" style="font-size:13px">Record is regular season only. Finals counts championship-game appearances. Playoff W-L includes placement games.</p>`;
-  }catch(e){ $("#rbBody").className="err"; $("#rbBody").textContent=e.message; }
+    out.push(...rows);
+  }
+  return out;
+}
+async function headToHead(uidA, uidB){
+  const rows = await allMeetings(); const out=[];
+  for (const r of rows){ if(r.ua===uidA&&r.ub===uidB) out.push(r); else if(r.ua===uidB&&r.ub===uidA) out.push({...r, ua:r.ub, ub:r.ua, pa:r.pb, pb:r.pa}); }
+  return out;
+}
+function userGameStats(uid, rows){ // Sleeper-era per-game stats from all meetings (regular season)
+  const g=[]; const byWk={};
+  for (const r of rows){ if(!r.final||r.playoff) continue; const k=`${r.season}-${r.week}`; (byWk[k] ||= []).push(r.pa, r.pb); if(r.ua===uid) g.push({pts:r.pa, k, season:r.season, week:r.week}); else if(r.ub===uid) g.push({pts:r.pb, k, season:r.season, week:r.week}); }
+  if(!g.length) return null;
+  let apW=0, apL=0; for (const x of g){ for (const o of byWk[x.k]){ if(o>x.pts) apL++; else if(o<x.pts) apW++; } apW-=0; } // self compare is equal → ignored
+  const hi=g.reduce((m,x)=>x.pts>m.pts?x:m,g[0]);
+  return { ppg: g.reduce((s,x)=>s+x.pts,0)/g.length, hi, ap: apW+apL? apW/(apW+apL):0, games:g.length };
+}
+async function drawH2HTab(){
+  const body=$("#rbBody");
+  const mgrs = S.career.rows.filter(r=>r.uid).sort((a,b)=>a.name.localeCompare(b.name));
+  if (mgrs.length<2){ body.innerHTML=`<div class="empty">Need at least two managers with Sleeper data.</div>`; return; }
+  // defaults: me vs this week's opponent
+  if (!S.h2hA){ const myUid = S.me && S.teams[S.me.roster_id]?.user?.user_id; let opp=null;
+    const m=S.matchups[`${S.leagueId}:${S.week}`]; if (myUid && m){ const mine=m.find(x=>x.roster_id===S.me.roster_id); const o=mine && m.find(x=>x.matchup_id===mine.matchup_id && x.roster_id!==mine.roster_id); opp = o && S.teams[o.roster_id]?.user?.user_id; }
+    S.h2hA = (myUid && mgrs.find(r=>r.uid===myUid)?.uid) || mgrs[0].uid; S.h2hB = (opp && opp!==S.h2hA && mgrs.find(r=>r.uid===opp)?.uid) || mgrs.find(r=>r.uid!==S.h2hA).uid; }
+  const opt = sel => mgrs.map(r=>`<option value="${r.uid}" ${r.uid===sel?"selected":""}>${esc(r.name)}</option>`).join("");
+  body.innerHTML = `<div class="h2hpick"><select id="hA">${opt(S.h2hA)}</select><button class="btn ghost" id="hSwap" title="Swap">⇄</button><select id="hB">${opt(S.h2hB)}</select></div><div id="h2hOut">${skel(5)}</div>`;
+  $("#hA").onchange=e=>{ S.h2hA=e.target.value; drawH2HTab(); }; $("#hB").onchange=e=>{ S.h2hB=e.target.value; drawH2HTab(); };
+  $("#hSwap").onclick=()=>{ [S.h2hA,S.h2hB]=[S.h2hB,S.h2hA]; drawH2HTab(); };
+  if (S.h2hA===S.h2hB){ $("#h2hOut").innerHTML=`<div class="empty">Pick two different managers.</div>`; return; }
+  const A=mgrs.find(r=>r.uid===S.h2hA), B=mgrs.find(r=>r.uid===S.h2hB);
+  const rows = await allMeetings(); const meets = (await headToHead(A.uid,B.uid)).filter(x=>x.final).sort((x,y)=>y.season-x.season||y.week-x.week);
+  const wA=meets.filter(x=>x.winner===A.uid).length, wB=meets.filter(x=>x.winner===B.uid).length, ties=meets.length-wA-wB;
+  let streak=""; if(meets.length){ const first=meets[0].winner; let n=0; for (const x of meets){ if(x.winner===first&&first) n++; else break; } if(first&&n) streak=`${(first===A.uid?A:B).name} has won the last ${n}`; }
+  const margins = meets.map(x=>x.pa-x.pb); const avgM = margins.length? margins.reduce((s,x)=>s+x,0)/margins.length : 0;
+  const bigA = meets.filter(x=>x.winner===A.uid).sort((x,y)=>(y.pa-y.pb)-(x.pa-x.pb))[0], bigB = meets.filter(x=>x.winner===B.uid).sort((x,y)=>(y.pb-y.pa)-(x.pb-x.pa))[0];
+  const gA=userGameStats(A.uid,rows), gB=userGameStats(B.uid,rows);
+  const av = uid => { const u=Object.values(S.teams).find(t=>t.user?.user_id===uid); return u? `<img src="${u.avatar}" alt="">` : ""; };
+  // this week's game?
+  let live=""; const cm=S.matchups[`${S.leagueId}:${S.week}`]; if (cm){ const ra=Object.values(S.teams).find(t=>t.user?.user_id===A.uid)?.roster.roster_id, rb=Object.values(S.teams).find(t=>t.user?.user_id===B.uid)?.roster.roster_id; const xa=cm.find(x=>x.roster_id===ra), xb=cm.find(x=>x.roster_id===rb); if(xa&&xb&&xa.matchup_id===xb.matchup_id) live=`<div class="card gotw" style="margin-bottom:16px"><div class="tag">They play this week</div>${muHtml(xa,xb,S.week).replace(/role="button" tabindex="0"/,"")}</div>`; }
+  const stat = (label, va, vb, fmtv=v=>v, higher=true, note="", ca=va, cb=vb) => { const ea = ca!=null&&cb!=null&&ca!==cb ? ((ca>cb)===higher) : null; return `<tr><td class="num ${ea===true?"edge":""}">${va==null?"·":fmtv(va)}</td><td class="lbl">${label}${note?`<div class="muted" style="font-size:11px;font-weight:400">${note}</div>`:""}</td><td class="num l ${ea===false?"edge":""}">${vb==null?"·":fmtv(vb)}</td></tr>`; };
+  const recS = r => `${r.wins}-${r.losses}${r.ties?"-"+r.ties:""}`;
+  const seasons = S.career.chain.map(l=>l.season).sort((x,y)=>y-x);
+  const finish = (st,y) => !st? "·" : (isCurrentSeason() && String(y)===String(S.league.season)) ? "In progress" : st.titles? "🏆 Champion" : st.seconds? "🥈 Runner-up" : st.thirds? "🥉 Third" : st.papps? "Playoffs" : "Missed";
+  const meetIn = (season) => { const m=meets.filter(x=>x.season===season); if(!m.length) return "·"; return m.map(x=>`<span class="${x.winner===A.uid?"s-won":x.winner===B.uid?"s-lost":""}">${x.winner===A.uid?"W":x.winner===B.uid?"L":"T"} ${fmt(x.pa)}–${fmt(x.pb)}</span>`).join("<br>"); };
+  $("#h2hOut").innerHTML = `${live}
+    <div class="card series"><div class="srow-h"><div class="who">${av(A.uid)}<b>${esc(A.name)}</b></div><div class="mid"><div class="big">${meets.length?`${wA}–${wB}${ties?`–${ties}`:""}`:"0–0"}</div><div class="lbl">${meets.length? (wA>wB?`${esc(A.name)} leads`:wB>wA?`${esc(B.name)} leads`:"Series tied") : "No meetings yet"} · Sleeper era</div>${streak?`<div class="muted" style="font-size:13px;margin-top:4px">${esc(streak)}</div>`:""}</div><div class="who r"><b>${esc(B.name)}</b>${av(B.uid)}</div></div>
+      ${meets.length?`<div class="row" style="justify-content:center;gap:24px;margin-top:12px;font-size:13px;color:var(--sub)"><span>Avg margin <b class="${avgM>0?"s-won":avgM<0?"s-lost":""}">${avgM>0?"+":""}${avgM.toFixed(1)}</b> for ${esc(A.name)}</span>${bigA?`<span>Biggest ${esc(A.name)} win: <b>${fmt(bigA.pa-bigA.pb)}</b> (${bigA.season} wk ${bigA.week})</span>`:""}${bigB?`<span>Biggest ${esc(B.name)} win: <b>${fmt(bigB.pb-bigB.pa)}</b> (${bigB.season} wk ${bigB.week})</span>`:""}</div>`:""}
+      ${meets.length?`<div style="margin-top:14px">${meets.map(x=>`<div class="meet"><span>${x.season} · Week ${x.week}${x.playoff?" · Playoffs":""}</span><span><span class="${x.winner===A.uid?"w":""}">${esc(A.name)} ${fmt(x.pa)}</span> – <span class="${x.winner===B.uid?"w":""}">${fmt(x.pb)} ${esc(B.name)}</span></span></div>`).join("")}</div>`:""}
+    </div>
+    <h3 style="margin-top:22px">Career</h3>
+    <div class="card" style="padding:4px 8px"><table class="cmp"><thead><tr><th class="num">${esc(A.name)}</th><th></th><th class="num l">${esc(B.name)}</th></tr></thead><tbody>
+      ${stat("Record", recS(A), recS(B), v=>v, true, "", pctOf(A), pctOf(B))}
+      ${stat("Win %", pctOf(A), pctOf(B), v=>(v*100).toFixed(1))}
+      ${stat("Championships", A.titles, B.titles)}
+      ${stat("Finals", A.finals, B.finals)}
+      ${stat("Playoff appearances", A.papps, B.papps)}
+      ${stat("Playoff record", A.papps?`${A.pw}-${A.pl}`:null, B.papps?`${B.pw}-${B.pl}`:null, v=>v, true, "", A.papps?A.pw-A.pl:null, B.papps?B.pw-B.pl:null)}
+      ${stat("Seasons", A.seasons, B.seasons)}
+      ${stat("Best season", A.sl?.best?.rec, B.sl?.best?.rec, v=>v, true, "Sleeper era", A.sl?.best?.pct, B.sl?.best?.pct)}
+      ${stat("Points per game", gA?.ppg, gB?.ppg, v=>fmt(v), true, "Sleeper era")}
+      ${stat("Highest week", gA?.hi?.pts, gB?.hi?.pts, v=>fmt(v), true, "Sleeper era")}
+      ${stat("All-play %", gA?.ap, gB?.ap, v=>(v*100).toFixed(1), true, "Sleeper era")}
+    </tbody></table></div>
+    <p class="muted" style="font-size:12.5px">Record, titles and playoff numbers go back to 2018 through the league record book. Per-game stats and the series record only cover Sleeper seasons.</p>
+    <h3 style="margin-top:22px">Season by season</h3>
+    <div class="card" style="padding:4px 8px"><div class="rb"><table style="min-width:640px"><thead><tr><th>Season</th><th>${esc(A.name)}</th><th>Finish</th><th>Head to head</th><th>${esc(B.name)}</th><th>Finish</th></tr></thead><tbody>
+      ${seasons.map(y=>{ const sa=S.career.perSeason[y]?.[A.uid], sb_=S.career.perSeason[y]?.[B.uid]; if(!sa&&!sb_) return ""; return `<tr><td class="num" style="text-align:left">${y}</td><td>${sa?`${sa.wins}-${sa.losses}`:"·"}</td><td class="muted">${finish(sa,y)}</td><td style="font-size:13px">${meetIn(y)}</td><td>${sb_?`${sb_.wins}-${sb_.losses}`:"·"}</td><td class="muted">${finish(sb_,y)}</td></tr>`; }).join("")}
+    </tbody></table></div></div>`;
 }
 async function sleeperSeasonStats(lg){
-  const ck=`ffl_sstats_${lg.league_id}`; const c=cache.get(ck); if(c && lg.status==="complete") return c;
+  const ck=`ffl_sstats2_${lg.league_id}`; const c=cache.get(ck); if(c && lg.status==="complete") return c;
   const isThis = lg.league_id===S.leagueId;
   const [users, rosters, wb] = await Promise.all([
     isThis ? Object.values(S.users) : j(`${API}/league/${lg.league_id}/users`),
@@ -1155,7 +1247,7 @@ async function sleeperSeasonStats(lg){
   ]);
   const um = Object.fromEntries(users.map(u=>[u.user_id,u])); const out={}; const byR={};
   for (const r of rosters){ if(!r.owner_id) continue; const u=um[r.owner_id]||{}; byR[r.roster_id]=r.owner_id;
-    out[r.owner_id]={name:u.display_name||"?", wins:r.settings?.wins||0, losses:r.settings?.losses||0, ties:r.settings?.ties||0, titles:0,finals:0,seconds:0,thirds:0,papps:0,pw:0,pl:0}; }
+    out[r.owner_id]={name:u.display_name||"?", wins:r.settings?.wins||0, losses:r.settings?.losses||0, ties:r.settings?.ties||0, pf:(r.settings?.fpts||0)+(r.settings?.fpts_decimal||0)/100, titles:0,finals:0,seconds:0,thirds:0,papps:0,pw:0,pl:0}; }
   const inPl = new Set();
   for (const gm of wb){ for (const t of [gm.t1,gm.t2]) if(t) inPl.add(t);
     const W=out[byR[gm.w]], L=out[byR[gm.l]];
