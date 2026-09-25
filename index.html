@@ -284,6 +284,12 @@ main section{animation:tabin .22s ease-out}
   .mob{display:inline-block}
   .bkhead .stat .v{font-size:26px}
 }
+.luck{display:flex;align-items:center;gap:8px}
+.luck .neg,.luck .pos{flex:1;height:8px;border-radius:999px;background:rgba(255,255,255,.07);position:relative;overflow:hidden}
+.luck .neg span{position:absolute;right:0;top:0;height:100%;background:var(--loss);border-radius:999px}
+.luck .pos span{position:absolute;left:0;top:0;height:100%;background:var(--win);border-radius:999px}
+.luck b{min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
+.rk{display:inline-block;min-width:22px;font-weight:600;font-size:13px;font-variant-numeric:tabular-nums}
 footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
 @media (prefers-reduced-motion:no-preference){.lineup{animation:open .18s ease-out}@keyframes open{from{opacity:0;transform:translateY(-4px)}}}
 </style>
@@ -318,7 +324,7 @@ footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
   <section id="t-draft" hidden></section>
   <section id="t-records" hidden></section>
 </div></main>
-<footer>Data from Sleeper. Sportsbook currency is play money.</footer>
+<footer>Data from Sleeper. Sportsbook currency is play money. <span class="muted" id="ver"></span></footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
@@ -328,6 +334,7 @@ footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
       members) and the shared sportsbook. Without them the site is open and bets
       are stored only in this browser.
 */
+const VERSION = "v12";
 const CONFIG = {
   LEAGUE_ID: "1389695305292734464",
   SUPABASE_URL: "https://cqstbjpllmcgvotrloid.supabase.co",
@@ -565,42 +572,75 @@ async function headToHead(uidA, uidB){
 }
 
 /* ================= STANDINGS ================= */
+async function weeklyScores(){ // roster_id -> [points per played week]
+  if (S.wscores && S.wscores.week===S.week) return S.wscores;
+  const regEnd=(S.league.settings?.playoff_week_start||15)-1;
+  const played = Array.from({length:Math.min(Math.max(S.week-1,0),regEnd)},(_,i)=>i+1);
+  const ms = await Promise.all(played.map(w=>getMatchups(w).catch(()=>[])));
+  const by={}; const weeks=[];
+  ms.forEach((m,i)=>{ const wk={}; for (const x of m){ if(!S.teams[x.roster_id]) continue; (by[x.roster_id] ||= []).push(x.points||0); wk[x.roster_id]=x.points||0; } weeks.push({week:played[i], pts:wk}); });
+  return S.wscores={week:S.week, by, weeks};
+}
+function allPlay(ws){
+  const out={};
+  for (const t of Object.values(S.teams)){ out[t.roster.roster_id]={w:0,l:0,t:0,ranks:[]}; }
+  for (const wk of ws.weeks){
+    const ids=Object.keys(wk.pts).map(Number); if(ids.length<2) continue;
+    const sorted=[...ids].sort((x,y)=>wk.pts[y]-wk.pts[x]);
+    for (const rid of ids){ const o=out[rid]; if(!o) continue; for (const other of ids){ if(other===rid) continue; if(wk.pts[rid]>wk.pts[other]) o.w++; else if(wk.pts[rid]<wk.pts[other]) o.l++; else o.t++; } o.ranks.push(sorted.indexOf(rid)+1); }
+  }
+  for (const o of Object.values(out)){ const g=o.w+o.l+o.t; o.pct=g?(o.w+.5*o.t)/g:0; }
+  return out;
+}
 async function renderStandings(){
   const sec = $("#t-stand");
+  sec.innerHTML = `<div class="seg" id="stSeg">${[["st","Standings"],["pw","Power rankings"],["ap","All-play & luck"],["po","Playoffs"]].map(([k,l])=>`<button data-k="${k}" class="${(S.stTab||"st")===k?"on":""}">${l}</button>`).join("")}</div><div id="stSec">${skel(6)}</div>`;
+  $("#stSeg").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; S.stTab=b.dataset.k; $("#stSeg .on")?.classList.remove("on"); b.classList.add("on"); drawStSec(); };
+  S.ws = await weeklyScores(); S.ap = allPlay(S.ws);
+  drawStSec();
+}
+const luckOf = t => { const ap=S.ap?.[t.roster.roster_id]; if(!ap) return 0; return t.wins+.5*t.ties - ap.pct*games(t); };
+function drawStSec(){
+  const sec=$("#stSec"); const tab=S.stTab||"st";
   const teams = Object.values(S.teams).sort((a,b)=> b.wins-a.wins || a.losses-b.losses || b.pf-a.pf);
-  const maxPf = Math.max(...teams.map(ppg),1);
-  // recent form: last 3 played weeks
-  let recent = {};
-  try{
-    const played = Array.from({length:Math.max(S.week-1,0)},(_,i)=>i+1).slice(-3);
-    const ms = await Promise.all(played.map(w=>getMatchups(w)));
-    for (const m of ms) for (const x of m){ (recent[x.roster_id] ||= []).push(x.points||0); }
-  }catch{}
-  const power = teams.map(t=>{
-    const r = recent[t.roster.roster_id]||[]; const rAvg = r.length? r.reduce((a,b)=>a+b,0)/r.length : ppg(t);
-    const winPct = games(t)? (t.wins+.5*t.ties)/games(t) : .5;
-    return {t, score: 100*(0.45*winPct + 0.35*(ppg(t)/maxPf) + 0.20*(rAvg/maxPf)), rAvg};
-  }).sort((a,b)=>b.score-a.score);
-  sec.innerHTML = `<div class="grid2"><div>
-    <h2>Standings</h2><div class="card" style="padding:4px 8px"><table><thead><tr><th>#</th><th>Team</th><th class="num">W-L</th><th class="num">PF</th><th class="num">PA</th><th>Streak</th></tr></thead><tbody>
-    ${teams.map((t,i)=>`<tr class="${S.me?.roster_id===t.roster.roster_id?"mine":""}"><td class="muted">${i+1}</td><td>${teamHtml(t)}</td><td class="num">${rec(t)}</td><td class="num">${fmt(t.pf)}</td><td class="num">${fmt(t.pa)}</td><td><span class="pill ${/W/.test(t.roster.metadata?.streak||"")?"win":/L/.test(t.roster.metadata?.streak||"")?"loss":""}">${esc(t.roster.metadata?.streak||"—")}</span></td></tr>`).join("")}
-    </tbody></table></div>
-    <p class="muted" style="font-size:13px">Top ${S.league.settings?.playoff_teams||"?"} make the playoffs, starting week ${S.league.settings?.playoff_week_start||"?"}.</p></div>
-    <div><h2>Power rankings</h2><div class="card" style="padding:4px 8px"><table><thead><tr><th>#</th><th>Team</th><th class="num">Rating</th><th class="num">Avg</th><th class="num">Last 3</th></tr></thead><tbody>
-    ${power.map((p,i)=>`<tr><td class="muted">${i+1}</td><td>${teamHtml(p.t,true)}</td><td class="num">${p.score.toFixed(1)}</td><td class="num">${fmt(ppg(p.t))}</td><td class="num">${fmt(p.rAvg)}</td></tr>`).join("")}
-    </tbody></table></div><p class="muted" style="font-size:13px">Rating blends win percentage, season scoring, and the last three weeks.</p>
-    <div id="bracket"></div></div></div>`;
-  drawBracket();
+  const luckCell = v => `<td class="num ${v>0.5?"s-won":v<-0.5?"s-lost":"muted"}">${v>0?"+":""}${v.toFixed(1)}</td>`;
+  if (tab==="st"){
+    sec.innerHTML = `<div class="card" style="padding:4px 8px"><table><thead><tr><th>#</th><th>Team</th><th class="num">W-L</th><th class="num">PF</th><th class="num">PA</th><th class="num" title="Actual wins minus expected wins from all-play">Luck</th><th>Streak</th></tr></thead><tbody>
+      ${teams.map((t,i)=>`<tr class="${S.me?.roster_id===t.roster.roster_id?"mine":""}"><td class="muted">${i+1}</td><td>${teamHtml(t)}</td><td class="num">${rec(t)}</td><td class="num">${fmt(t.pf)}</td><td class="num">${fmt(t.pa)}</td>${luckCell(luckOf(t))}<td><span class="pill ${/W/.test(t.roster.metadata?.streak||"")?"win":/L/.test(t.roster.metadata?.streak||"")?"loss":""}">${esc(t.roster.metadata?.streak||"—")}</span></td></tr>`).join("")}
+      </tbody></table></div>
+      <p class="muted" style="font-size:13px">Top ${S.league.settings?.playoff_teams||"?"} make the playoffs, starting week ${S.league.settings?.playoff_week_start||"?"}. Luck is actual wins minus the wins you'd expect from your all-play record.</p>`;
+  } else if (tab==="pw"){
+    const maxPf = Math.max(...teams.map(ppg),1);
+    const power = teams.map(t=>{ const r=(S.ws.by[t.roster.roster_id]||[]).slice(-3); const rAvg=r.length? r.reduce((a,b)=>a+b,0)/r.length : ppg(t); const winPct=games(t)?(t.wins+.5*t.ties)/games(t):.5; return {t, score:100*(0.45*winPct+0.35*(ppg(t)/maxPf)+0.20*(rAvg/maxPf)), rAvg}; }).sort((a,b)=>b.score-a.score);
+    sec.innerHTML = `<div class="card" style="padding:4px 8px"><table><thead><tr><th>#</th><th>Team</th><th class="num">Rating</th><th class="num">Record</th><th class="num">Avg</th><th class="num">Last 3</th></tr></thead><tbody>
+      ${power.map((p,i)=>`<tr class="${S.me?.roster_id===p.t.roster.roster_id?"mine":""}"><td class="muted">${i+1}</td><td>${teamHtml(p.t,true)}</td><td class="num">${p.score.toFixed(1)}</td><td class="num">${rec(p.t)}</td><td class="num">${fmt(ppg(p.t))}</td><td class="num">${fmt(p.rAvg)}</td></tr>`).join("")}
+      </tbody></table></div><p class="muted" style="font-size:13px">Rating blends win percentage (45%), season scoring (35%), and the last three weeks (20%).</p>`;
+  } else if (tab==="ap"){
+    const n=Object.keys(S.teams).length;
+    const rows = teams.map(t=>{ const ap=S.ap[t.roster.roster_id]; const g=games(t); return {t, ap, exp: ap.pct*g, luck: luckOf(t)}; }).sort((a,b)=>b.ap.pct-a.ap.pct||b.t.pf-a.t.pf);
+    const maxL = Math.max(1,...rows.map(r=>Math.abs(r.luck)));
+    const rankColor = r => r===1?"var(--win)":r<=Math.ceil(n/3)?"#8FC3FF":r>n-Math.ceil(n/3)?"var(--loss)":"var(--sub)";
+    sec.innerHTML = `<div class="card" style="padding:4px 8px"><div class="rb"><table style="min-width:720px"><thead><tr><th>#</th><th>Team</th><th class="num">Actual</th><th class="num">All-play</th><th class="num">All-play %</th><th class="num">Exp. wins</th><th style="min-width:200px">Luck</th></tr></thead><tbody>
+      ${rows.map((r,i)=>`<tr class="${S.me?.roster_id===r.t.roster.roster_id?"mine":""}"><td class="muted">${i+1}</td><td>${teamHtml(r.t,true)}</td><td class="num">${rec(r.t)}</td><td class="num">${r.ap.w}-${r.ap.l}${r.ap.t?"-"+r.ap.t:""}</td><td class="num">${(r.ap.pct*100).toFixed(1)}</td><td class="num">${r.exp.toFixed(1)}</td>
+        <td><div class="luck"><div class="neg"><span style="width:${r.luck<0?(-r.luck/maxL*100):0}%"></span></div><div class="pos"><span style="width:${r.luck>0?(r.luck/maxL*100):0}%"></span></div><b class="${r.luck>0.5?"s-won":r.luck<-0.5?"s-lost":"muted"}">${r.luck>0?"+":""}${r.luck.toFixed(1)}</b></div></td></tr>`).join("")}
+      </tbody></table></div></div>
+      <p class="muted" style="font-size:13px">All-play is your record if you had played every team every week. Expected wins is that percentage applied to your games played; luck is how far your actual wins sit above or below it. Sorted by all-play %, the fairest ranking of who's actually good.</p>
+      ${S.ws.weeks.length?`<h3 style="margin-top:22px">Weekly finish</h3><div class="card" style="padding:4px 8px"><div class="rb"><table style="min-width:${300+S.ws.weeks.length*40}px"><thead><tr><th>Team</th>${S.ws.weeks.map(w=>`<th class="num" style="text-align:center">W${w.week}</th>`).join("")}<th class="num">Avg</th></tr></thead><tbody>
+        ${rows.map(r=>`<tr class="${S.me?.roster_id===r.t.roster.roster_id?"mine":""}"><td>${teamHtml(r.t,true)}</td>${r.ap.ranks.map(k=>`<td style="text-align:center"><span class="rk" style="color:${rankColor(k)}">${k}</span></td>`).join("")}${Array(Math.max(0,S.ws.weeks.length-r.ap.ranks.length)).fill('<td></td>').join("")}<td class="num">${r.ap.ranks.length?(r.ap.ranks.reduce((x,y)=>x+y,0)/r.ap.ranks.length).toFixed(1):"·"}</td></tr>`).join("")}
+        </tbody></table></div></div><p class="muted" style="font-size:12.5px">Where each team's score ranked among all ${n} teams that week. Green is the top score, red is the bottom third.</p>`:""}`;
+  } else if (tab==="po"){
+    sec.innerHTML = `<div id="bracket"><div class="empty">The playoff bracket appears once the playoffs start (week ${S.league.settings?.playoff_week_start||"?"}).</div></div>`;
+    drawBracket();
+  }
 }
 async function drawBracket(){
   const box = $("#bracket"); if(!box) return;
-  if (S.week < (S.league.settings?.playoff_week_start||99)) return;
   try{
     const wb = await j(`${API}/league/${S.leagueId}/winners_bracket`);
     if(!wb?.length) return;
     const rounds = {}; for (const g of wb) (rounds[g.r] ||= []).push(g);
     const nm = id => id ? esc(S.teams[id]?.name||"?") : '<span class="muted">TBD</span>';
-    box.innerHTML = `<h2 style="margin-top:22px">Playoff bracket</h2><div class="card">${Object.keys(rounds).sort().map(r=>`<h3>${r==Math.max(...Object.keys(rounds))?"Championship round":"Round "+r}</h3>${rounds[r].map(g=>`<div class="row spread" style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.07)"><span class="${g.w===g.t1?"":"muted"}">${nm(g.t1)}</span><span class="pill ${g.p===1?"brass":""}">${g.p===1?"Title":g.p?"Place "+g.p:"vs"}</span><span class="${g.w===g.t2?"":"muted"}">${nm(g.t2)}</span></div>`).join("")}`).join("")}</div>`;
+    box.innerHTML = `<div class="card">${Object.keys(rounds).sort().map(r=>`<h3>${r==Math.max(...Object.keys(rounds))?"Championship round":"Round "+r}</h3>${rounds[r].map(g=>`<div class="row spread" style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.07)"><span class="${g.w===g.t1?"":"muted"}">${nm(g.t1)}</span><span class="pill ${g.p===1?"brass":""}">${g.p===1?"Title":g.p?"Place "+g.p:"vs"}</span><span class="${g.w===g.t2?"":"muted"}">${nm(g.t2)}</span></div>`).join("")}`).join("")}</div>`;
   }catch{}
 }
 
@@ -1197,6 +1237,7 @@ function renderSetup(){
   $("#suGo").onclick=async()=>{ const list=$("#suList"); list.textContent="Looking…"; try{ const u=await j(`${API}/user/${encodeURIComponent($("#su").value.trim())}`); const st=await j(`${API}/state/nfl`); const ls=await j(`${API}/user/${u.user_id}/leagues/nfl/${st.league_season}`); list.innerHTML = ls.length? ls.map(l=>`<div class="row spread" style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)"><span>${esc(l.name)} <span class="muted">(${l.total_rosters} teams)</span></span><a class="btn ghost" style="text-decoration:none;font-size:15px;padding:5px 10px" href="?league=${l.league_id}">Open</a></div>`).join("") : "No leagues found for this season."; }catch(e){ list.textContent="User not found."; } };
 }
 (async function boot(){
+  $("#ver").textContent = VERSION;
   const q = new URLSearchParams(location.search).get("league");
   S.leagueId = q || CONFIG.LEAGUE_ID || cache.get("ffl_last_league");
   if (!S.leagueId){ $("#lgSub").textContent="No league connected"; renderSetup(); return; }
