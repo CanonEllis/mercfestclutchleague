@@ -290,6 +290,20 @@ main section{animation:tabin .22s ease-out}
 .luck .pos span{position:absolute;left:0;top:0;height:100%;background:var(--win);border-radius:999px}
 .luck b{min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
 .rk{display:inline-block;min-width:22px;font-weight:600;font-size:13px;font-variant-numeric:tabular-nums}
+.bracket{display:grid;gap:14px;align-items:stretch}
+.brnd{display:flex;flex-direction:column}
+.brh{font-size:12.5px;color:var(--sub);font-weight:500;text-align:center;margin-bottom:8px}
+.bgames{display:flex;flex-direction:column;justify-content:space-around;gap:14px;flex:1}
+.bg{position:relative;background:var(--glass);border:1px solid var(--edge);border-radius:12px;overflow:hidden}
+.bt{display:flex;align-items:center;gap:8px;padding:9px 10px;font-size:14px;font-weight:500;border-bottom:1px solid rgba(255,255,255,.06)}
+.bt:last-of-type{border-bottom:0}
+.bt img{width:26px;height:26px;border-radius:7px;border:1px solid var(--edge);background:var(--glass-2);flex:none}
+.bt .seed{width:16px;font-size:11px;color:var(--faint);text-align:right;flex:none;font-variant-numeric:tabular-nums}
+.bt.won{background:rgba(76,217,138,.10)}
+.bt.lost{opacity:.5}
+.bt .chk{margin-left:auto;color:var(--win);font-weight:700}
+.bt.tbd{color:var(--faint)}
+.bglbl{position:absolute;top:-1px;right:8px;font-size:10.5px;color:var(--gold);font-weight:600}
 footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
 @media (prefers-reduced-motion:no-preference){.lineup{animation:open .18s ease-out}@keyframes open{from{opacity:0;transform:translateY(-4px)}}}
 </style>
@@ -334,7 +348,7 @@ footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
       members) and the shared sportsbook. Without them the site is open and bets
       are stored only in this browser.
 */
-const VERSION = "v12";
+const VERSION = "v13";
 const CONFIG = {
   LEAGUE_ID: "1389695305292734464",
   SUPABASE_URL: "https://cqstbjpllmcgvotrloid.supabase.co",
@@ -638,9 +652,21 @@ async function drawBracket(){
   try{
     const wb = await j(`${API}/league/${S.leagueId}/winners_bracket`);
     if(!wb?.length) return;
-    const rounds = {}; for (const g of wb) (rounds[g.r] ||= []).push(g);
-    const nm = id => id ? esc(S.teams[id]?.name||"?") : '<span class="muted">TBD</span>';
-    box.innerHTML = `<div class="card">${Object.keys(rounds).sort().map(r=>`<h3>${r==Math.max(...Object.keys(rounds))?"Championship round":"Round "+r}</h3>${rounds[r].map(g=>`<div class="row spread" style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.07)"><span class="${g.w===g.t1?"":"muted"}">${nm(g.t1)}</span><span class="pill ${g.p===1?"brass":""}">${g.p===1?"Title":g.p?"Place "+g.p:"vs"}</span><span class="${g.w===g.t2?"":"muted"}">${nm(g.t2)}</span></div>`).join("")}`).join("")}</div>`;
+    const pstart = S.league.settings?.playoff_week_start||15;
+    const projected = isCurrentSeason() && S.week < pstart;
+    const main = wb.filter(g=>!g.p || g.p===1), cons = wb.filter(g=>g.p && g.p!==1);
+    const rounds = {}; for (const g of main) (rounds[g.r] ||= []).push(g);
+    const rks = Object.keys(rounds).map(Number).sort((x,y)=>x-y);
+    const seeds = Object.fromEntries(Object.values(S.teams).sort((a,b)=>b.wins-a.wins||a.losses-b.losses||b.pf-a.pf).map((t,i)=>[t.roster.roster_id,i+1]));
+    const side = (rid, g) => { const t=S.teams[rid]; const won=g.w&&g.w===rid, lost=g.l&&g.l===rid; if(!t) return `<div class="bt tbd"><span class="seed"></span><span class="ellip muted">TBD</span></div>`;
+      return `<div class="bt ${won?"won":""} ${lost?"lost":""}"><span class="seed">${seeds[rid]||""}</span><img src="${t.avatar}" alt=""><span class="ellip ${fit(t.name)}">${esc(t.name)}</span>${won?'<span class="chk">✓</span>':""}</div>`; };
+    const game = g => `<div class="bg">${side(g.t1,g)}${side(g.t2,g)}${g.p===1?'<div class="bglbl">Championship</div>':g.t1_from?.w!=null&&!g.t2?'':''}</div>`;
+    box.innerHTML = `<div class="card"><div class="row spread" style="margin-bottom:12px"><h3 style="margin:0">Playoff bracket</h3>${projected?`<span class="pill">Projected · if the season ended today</span>`:`<span class="pill brass">Week ${pstart}+</span>`}</div>
+      <div class="rb"><div class="bracket" style="grid-template-columns:repeat(${rks.length},minmax(210px,1fr))">
+        ${rks.map(r=>`<div class="brnd"><div class="brh">${r===rks[rks.length-1]?"Final":r===rks[rks.length-2]?"Semifinals":"Round "+r}</div><div class="bgames">${rounds[r].sort((x,y)=>x.m-y.m).map(game).join("")}</div></div>`).join("")}
+      </div></div>
+      ${cons.length?`<h3 style="margin-top:20px">Placement games</h3><div class="bgames" style="flex-direction:row;flex-wrap:wrap;gap:10px">${cons.sort((x,y)=>x.p-y.p).map(g=>`<div style="flex:1;min-width:210px"><div class="bglbl" style="position:static;margin-bottom:4px">${g.p===3?"Third place":g.p+(g.p===5?"th":g.p===7?"th":"th")+" place"}</div>${game(g)}</div>`).join("")}</div>`:""}
+      <p class="muted" style="font-size:12.5px;margin-top:12px">Byes for the top seeds show as a team waiting for a Round ${rks[0]} winner. Seeds are current standings.</p></div>`;
   }catch{}
 }
 
