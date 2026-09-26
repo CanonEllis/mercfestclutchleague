@@ -328,6 +328,9 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover{color:var(--text)}
 th.sortable.on{color:var(--text)}
 th .arr{font-size:9px;margin-left:4px;color:var(--blue)}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.fl{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--sub)}
+.fl input,.fl select{width:100%}
 footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
 @media (prefers-reduced-motion:no-preference){.lineup{animation:open .18s ease-out}@keyframes open{from{opacity:0;transform:translateY(-4px)}}}
 </style>
@@ -348,6 +351,7 @@ footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
     <button data-t="tx">Transactions</button>
     <button data-t="draft">Draft</button>
     <button data-t="records">Record book</button>
+    <button data-t="admin" id="navAdmin" hidden>Commissioner</button>
   </nav>
 </div></header>
 
@@ -361,6 +365,7 @@ footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
   <section id="t-tx" hidden></section>
   <section id="t-draft" hidden></section>
   <section id="t-records" hidden></section>
+  <section id="t-admin" hidden></section>
 </div></main>
 <footer>Data from Sleeper. Sportsbook currency is play money. <span class="muted" id="ver"></span></footer>
 
@@ -372,7 +377,7 @@ footer{text-align:center;color:var(--faint);font-size:13px;padding:24px 0}
       members) and the shared sportsbook. Without them the site is open and bets
       are stored only in this browser.
 */
-const VERSION = "v15";
+const VERSION = "v16";
 const CONFIG = {
   LEAGUE_ID: "1389695305292734464",
   SUPABASE_URL: "https://cqstbjpllmcgvotrloid.supabase.co",
@@ -473,7 +478,7 @@ function show(t){
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.t===t));
   document.querySelectorAll("main section").forEach(s=>s.hidden = s.id!=="t-"+t);
   location.hash = t;
-  if (!rendered[t]){ rendered[t]=true; ({score:renderScore, stand:renderStandings, trophy:renderTrophies, book:renderBook, tx:renderTx, draft:renderDraft, records:renderRecords})[t]?.(); }
+  if (!rendered[t]){ rendered[t]=true; ({score:renderScore, stand:renderStandings, trophy:renderTrophies, book:renderBook, tx:renderTx, draft:renderDraft, records:renderRecords, admin:renderAdmin})[t]?.(); }
 }
 
 /* ================= SCOREBOARD ================= */
@@ -1126,9 +1131,9 @@ async function buildCareer(){
   const rows=[]; const used=new Set();
   for (const b of base){
     const r = {name:b.manager, uid:null, wins:b.wins||0, losses:b.losses||0, ties:b.ties||0, titles:b.titles||0, finals:b.finals||0, seconds:b.seconds||0, thirds:b.thirds||0, papps:b.playoff_apps||0, pw:b.playoff_wins||0, pl:b.playoff_losses||0, seasons:b.seasons||0, first:b.tenure_start, last:b.tenure_end, current:false, sl:null};
-    if (b.sleeper_username){
-      let uid=null; const ck=`ffl_uid_${b.sleeper_username.toLowerCase()}`; uid=cache.get(ck);
-      if(!uid){ try{ uid=(await j(`${API}/user/${encodeURIComponent(b.sleeper_username)}`)).user_id; cache.set(ck,uid); }catch{} }
+    if (b.sleeper_user_id || b.sleeper_username){
+      let uid=b.sleeper_user_id||null;
+      if(!uid){ const ck=`ffl_uid_${b.sleeper_username.toLowerCase()}`; uid=cache.get(ck); if(!uid){ try{ uid=(await j(`${API}/user/${encodeURIComponent(b.sleeper_username)}`)).user_id; cache.set(ck,uid); }catch{} } }
       if (uid && perUser[uid]){ const u=perUser[uid]; used.add(uid); r.uid=uid; r.sl=u;
         for (const k of ["wins","losses","ties","titles","finals","seconds","thirds","papps","pw","pl","seasons"]) r[k]+=u[k];
         r.last=Math.max(r.last||0,u.last); r.current = !!S.users[uid]; }
@@ -1274,6 +1279,73 @@ async function sleeperSeasonStats(lg){
   return out;
 }
 
+
+/* ================= COMMISSIONER PANEL ================= */
+async function renderAdmin(){
+  const sec=$("#t-admin");
+  if(!S.me?.is_commissioner){ sec.innerHTML=`<div class="empty">Commissioner only.</div>`; return; }
+  sec.innerHTML=`<div class="seg" id="adSeg">${[["members","Members"],["code","Invite code"],["links","Record book"],["trophies","Trophies"]].map(([k,l])=>`<button data-k="${k}" class="${(S.adTab||"members")===k?"on":""}">${l}</button>`).join("")}</div><div id="adBody">${skel(4)}</div>`;
+  $("#adSeg").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; S.adTab=b.dataset.k; $("#adSeg .on")?.classList.remove("on"); b.classList.add("on"); drawAdmin(); };
+  drawAdmin();
+}
+const sleeperOpts = (sel) => `<option value="">— not linked —</option>` + Object.values(S.users).sort((a,b)=>(a.display_name||"").localeCompare(b.display_name||"")).map(u=>`<option value="${u.user_id}" ${u.user_id===sel?"selected":""}>${esc(u.display_name)}${S.teams[Object.values(S.teams).find(t=>t.user?.user_id===u.user_id)?.roster.roster_id]?` · ${esc(Object.values(S.teams).find(t=>t.user?.user_id===u.user_id).name)}`:""}</option>`).join("");
+const fld = (id,label,val,type="text",extra="") => `<label class="fl"><span>${label}</span><input id="${id}" type="${type}" value="${esc(val??"")}" ${extra}></label>`;
+function adminForm(title, html, onSave){
+  const ov=el(`<div class="overlay"><div class="card h2h" style="max-width:640px"><button class="x" aria-label="Close">×</button><h3>${title}</h3><div class="fgrid">${html}</div><div class="row" style="margin-top:14px"><button class="btn brass" id="fSave">Save</button><span class="muted" id="fMsg"></span></div></div></div>`);
+  document.body.appendChild(ov); const close=()=>ov.remove();
+  ov.onclick=e=>{ if(e.target===ov||e.target.classList.contains("x")) close(); };
+  $("#fSave",ov).onclick=async()=>{ $("#fSave",ov).disabled=true; try{ await onSave(ov); close(); drawAdmin(); }catch(e){ $("#fMsg",ov).textContent=e.message; $("#fSave",ov).disabled=false; } };
+  return ov;
+}
+async function drawAdmin(){
+  const body=$("#adBody"); body.className=""; body.innerHTML=skel(4); const tab=S.adTab||"members";
+  try{
+  if (tab==="members"){
+    const rows = await DB.q("profiles", `league_id=eq.${S.leagueId}&select=user_id,roster_id,sleeper_username,is_commissioner,created_at&order=created_at`);
+    body.innerHTML=`<div class="card" style="padding:4px 8px"><table><thead><tr><th>Team</th><th>Sleeper</th><th>Joined</th><th>Commissioner</th><th></th></tr></thead><tbody>
+      ${rows.map(r=>{ const t=S.teams[r.roster_id]; return `<tr><td>${t?teamHtml(t,true):`Roster ${r.roster_id}`}</td><td class="muted">${esc(r.sleeper_username||"—")}</td><td class="muted">${new Date(r.created_at).toLocaleDateString()}</td><td><input type="checkbox" class="cm" data-u="${r.user_id}" ${r.is_commissioner?"checked":""} ${r.user_id===S.session.user.id?"disabled":""}></td><td style="text-align:right">${r.user_id===S.session.user.id?'<span class="muted" style="font-size:12px">you</span>':`<button class="btn ghost rm" data-u="${r.user_id}" style="font-size:13px;padding:4px 10px">Remove</button>`}</td></tr>`; }).join("")}
+      </tbody></table></div>
+      <p class="muted" style="font-size:13px">${rows.length} of ${Object.keys(S.teams).length} teams claimed. Removing a member deletes their site profile and frees the team; their bets stay. They can sign in and claim again with the invite code.</p>
+      <h3 style="margin-top:20px">Unclaimed teams</h3><div class="card">${Object.values(S.teams).filter(t=>!rows.some(r=>r.roster_id===t.roster.roster_id)).map(t=>`<div class="srow">${teamHtml(t,true)}</div>`).join("")||`<div class="muted">Everyone's in.</div>`}</div>`;
+    body.querySelectorAll(".cm").forEach(c=>c.onchange=async()=>{ try{ await DB.q("profiles", `league_id=eq.${S.leagueId}&user_id=eq.${c.dataset.u}`, {method:"PATCH", body:{is_commissioner:c.checked}}); }catch(e){ alert(e.message); c.checked=!c.checked; } });
+    body.querySelectorAll(".rm").forEach(b=>b.onclick=async()=>{ if(!confirm("Remove this member and free their team?")) return; try{ await DB.q("profiles", `league_id=eq.${S.leagueId}&user_id=eq.${b.dataset.u}`, {method:"DELETE"}); drawAdmin(); }catch(e){ alert(e.message); } });
+  } else if (tab==="code"){
+    let code=""; try{ const r=await sb.rpc("get_invite_code",{p_league_id:S.leagueId}); code=r.data||""; }catch{}
+    body.innerHTML=`<div class="card" style="max-width:520px"><h3>Invite code</h3><p class="muted" style="margin-top:0">New members enter this once to claim their team. Share it in the group chat.</p><div class="row"><input id="ic" value="${esc(code)}" style="flex:1;font-size:18px"><button class="btn brass" id="icSave">Save</button></div><div class="muted" id="icMsg" style="margin-top:8px;font-size:13px"></div></div>`;
+    $("#icSave").onclick=async()=>{ const v=$("#ic").value.trim(); if(!v){ $("#icMsg").textContent="Code can't be empty."; return; } const {error}=await sb.rpc("set_invite_code",{p_league_id:S.leagueId,p_code:v}); $("#icMsg").textContent = error? error.message : "Saved."; };
+  } else if (tab==="links"){
+    const rows = await DB.q("records_baseline", `league_id=eq.${S.leagueId}&order=manager`);
+    const num = ["tenure_start","tenure_end","seasons","wins","losses","ties","titles","finals","seconds","thirds","playoff_apps","playoff_wins","playoff_losses"];
+    body.innerHTML=`<p class="muted" style="margin-top:0">Pre-Sleeper career totals, one row per manager. Link each to their Sleeper account so the Record book and Head to head add their Sleeper seasons on top.</p>
+      <div class="card" style="padding:4px 8px"><table><thead><tr><th>Manager</th><th>Record</th><th>Titles</th><th>Sleeper account</th><th></th></tr></thead><tbody>
+      ${rows.map(r=>`<tr data-id="${r.id}"><td><b>${esc(r.manager)}</b><div class="muted" style="font-size:12px">${r.tenure_start||"?"}–${r.tenure_end||"?"}</div></td><td class="num" style="text-align:left">${r.wins}-${r.losses}</td><td class="num" style="text-align:left">${r.titles||"·"}</td><td><select class="lk" data-id="${r.id}">${sleeperOpts(r.sleeper_user_id)}</select></td><td style="text-align:right;white-space:nowrap"><button class="btn ghost ed" data-id="${r.id}" style="font-size:13px;padding:4px 10px">Edit</button> <button class="btn ghost del" data-id="${r.id}" style="font-size:13px;padding:4px 10px">Delete</button></td></tr>`).join("")}
+      </tbody></table></div>
+      <button class="btn" id="addRow" style="margin-top:14px">Add manager</button>`;
+    body.querySelectorAll(".lk").forEach(sel=>sel.onchange=async()=>{ const u=S.users[sel.value]; try{ await DB.q("records_baseline", `id=eq.${sel.dataset.id}`, {method:"PATCH", body:{sleeper_user_id:sel.value||null, sleeper_username:u?.display_name||null}}); S.career=null; sel.style.borderColor="var(--win)"; setTimeout(()=>sel.style.borderColor="",1200); }catch(e){ alert(e.message); } });
+    body.querySelectorAll(".del").forEach(b=>b.onclick=async()=>{ if(!confirm("Delete this manager's baseline row?")) return; try{ await DB.q("records_baseline", `id=eq.${b.dataset.id}`, {method:"DELETE"}); S.career=null; drawAdmin(); }catch(e){ alert(e.message); } });
+    const openForm = (r) => adminForm(r?"Edit manager":"Add manager", fld("f_manager","Name",r?.manager)+num.map(k=>fld("f_"+k,k.replace(/_/g," "),r?.[k]??(k.startsWith("tenure")?"":0),"number")).join(""), async ()=>{
+      const bodyRow={league_id:S.leagueId, manager:$("#f_manager").value.trim()}; if(!bodyRow.manager) throw new Error("Name is required.");
+      for (const k of num){ const v=$("#f_"+k).value; bodyRow[k]= v===""? null : +v; }
+      if (r) await DB.q("records_baseline", `id=eq.${r.id}`, {method:"PATCH", body:bodyRow}); else await DB.q("records_baseline","",{method:"POST", body:bodyRow}); S.career=null; });
+    body.querySelectorAll(".ed").forEach(b=>b.onclick=()=>openForm(rows.find(r=>r.id===b.dataset.id)));
+    $("#addRow").onclick=()=>openForm(null);
+  } else if (tab==="trophies"){
+    const rows = await DB.q("trophies", `league_id=eq.${S.leagueId}&order=season.desc,sort_order.asc`);
+    body.innerHTML=`<p class="muted" style="margin-top:0">Hand-entered trophies: pre-Sleeper seasons and any extra awards. Sleeper-era automatic awards aren't listed here.</p>
+      <div class="card" style="padding:4px 8px"><table><thead><tr><th>Season</th><th>Award</th><th>Who</th><th>Detail</th><th></th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td>${r.season}</td><td>${esc(r.icon||"")} ${esc(r.award)}${r.is_champion?' <span class="pill brass" style="font-size:11px">champ</span>':""}</td><td>${esc(r.team_name||S.teams[r.roster_id]?.name||"")}<div class="muted" style="font-size:12px">${esc(r.owner_name||S.teams[r.roster_id]?.owner||"")}</div></td><td class="muted">${esc(r.detail||"")}</td><td style="text-align:right;white-space:nowrap"><button class="btn ghost ed" data-id="${r.id}" style="font-size:13px;padding:4px 10px">Edit</button> <button class="btn ghost del" data-id="${r.id}" style="font-size:13px;padding:4px 10px">Delete</button></td></tr>`).join("")}
+      </tbody></table></div><button class="btn" id="addT" style="margin-top:14px">Add trophy</button>`;
+    const openForm = (r) => adminForm(r?"Edit trophy":"Add trophy", fld("t_season","Season",r?.season??new Date().getFullYear(),"number")+fld("t_award","Award",r?.award)+fld("t_icon","Icon (emoji)",r?.icon||"🏅")+`<label class="fl"><span>Current manager</span><select id="t_rid"><option value="">— none —</option>${Object.values(S.teams).map(t=>`<option value="${t.roster.roster_id}" ${r?.roster_id===t.roster.roster_id?"selected":""}>${esc(t.name)} (${esc(t.owner)})</option>`).join("")}</select></label>`+fld("t_team","Team name (if no current manager)",r?.team_name)+fld("t_owner","Owner name",r?.owner_name)+fld("t_detail","Detail",r?.detail)+`<label class="fl row" style="gap:8px"><input id="t_champ" type="checkbox" style="width:auto" ${r?.is_champion?"checked":""}> <span>Season champion (big gold card)</span></label>`, async ()=>{
+      const row={league_id:S.leagueId, season:+$("#t_season").value, award:$("#t_award").value.trim(), icon:$("#t_icon").value.trim()||"🏅", roster_id:$("#t_rid").value?+$("#t_rid").value:null, team_name:$("#t_team").value.trim()||null, owner_name:$("#t_owner").value.trim()||null, detail:$("#t_detail").value.trim()||null, is_champion:$("#t_champ").checked, sort_order:$("#t_champ").checked?0:10};
+      if(!row.season||!row.award) throw new Error("Season and award are required.");
+      if (r) await DB.q("trophies", `id=eq.${r.id}`, {method:"PATCH", body:row}); else await DB.q("trophies","",{method:"POST", body:row}); delete rendered.trophy; });
+    body.querySelectorAll(".ed").forEach(b=>b.onclick=()=>openForm(rows.find(r=>r.id===b.dataset.id)));
+    body.querySelectorAll(".del").forEach(b=>b.onclick=async()=>{ if(!confirm("Delete this trophy?")) return; try{ await DB.q("trophies", `id=eq.${b.dataset.id}`, {method:"DELETE"}); delete rendered.trophy; drawAdmin(); }catch(e){ alert(e.message); } });
+    $("#addT").onclick=()=>openForm(null);
+  }
+  }catch(e){ body.className="err"; body.textContent=e.message; }
+}
+
 /* ================= AUTH (Supabase) ================= */
 function hideAll(){ document.querySelectorAll("main section").forEach(x=>x.hidden=true); $("#nav").style.display="none"; }
 function renderLogin(mode="in", msg=""){
@@ -1345,6 +1417,7 @@ async function afterAuth(){
   }catch(e){ renderLogin("in", e.message); }
 }
 function drawAcct(){
+  $("#navAdmin").hidden = !(S.me?.is_commissioner);
   const a=$("#acct"); if(!sb||!S.me){ a.innerHTML=""; return; }
   const t=S.teams[S.me.roster_id];
   a.innerHTML=`<div class="acct"><span class="ellip" style="max-width:160px">${esc(t?.name||"Member")}</span><img src="${t?.avatar||""}" alt=""><button id="soBtn">Sign out</button></div>`;
@@ -1355,7 +1428,7 @@ function enter(){
   drawAcct();
   Object.keys(rendered).forEach(k=>delete rendered[k]);
   const tab = location.hash.replace("#","") || "score";
-  show(["score","stand","trophy","book","tx","draft","records"].includes(tab)?tab:"score");
+  show(["score","stand","trophy","book","tx","draft","records","admin"].includes(tab)?tab:"score");
 }
 
 /* ================= SETUP / BOOT ================= */
